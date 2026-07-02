@@ -82,6 +82,14 @@ cd frontend; npm run dev
 
 ## ☁️ Railwayへのデプロイ
 
+デプロイ設定は `railway.json` にコード化してある（Dockerfileビルド＋`/api/health` ヘルスチェック）。
+
+### 方法A：GitHub連携で自動デプロイ（推奨）
+Railwayダッシュボードで `web` サービスを本リポジトリの `main` ブランチに接続すると、
+`main` へpushするたびに自動でビルド＆デプロイされる。
+- Railway → oshilog → `web` → Settings → Source → Connect Repo で `tarutoon7391/OshiLog` の `main` を指定
+
+### 方法B：CLIから手動デプロイ
 ```powershell
 railway up --ci -s web   # リポジトリ直下で実行（Dockerfileでビルド）
 ```
