@@ -1,0 +1,187 @@
+import { useEffect, useState } from 'react'
+import {
+  ResponsiveContainer, PieChart, Pie, Cell, Tooltip,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+} from 'recharts'
+import { api } from '../api'
+import { currentMonth, shiftMonth, todayStr, formatYen } from '../util'
+import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty } from '../components/ui'
+
+const emptyForm = { title: '', record_date: '', amount: '', oshi_id: null, memo: '' }
+
+// 参戦記録・オタ活家計簿（記録タブ）＋推し別貢献度の可視化（集計タブ）
+export default function Records() {
+  const [tab, setTab] = useState('list') // 'list' | 'chart'
+  const [month, setMonth] = useState(currentMonth())
+  const [list, setList] = useState([])
+  const [oshiList, setOshiList] = useState([])
+  const [stats, setStats] = useState(null)
+  const [form, setForm] = useState(null)
+  const [error, setError] = useState('')
+
+  const reload = () => {
+    api(`/records?month=${month}`).then(setList).catch(console.error)
+    api('/stats/summary').then(setStats).catch(console.error)
+  }
+  useEffect(() => { reload() }, [month])
+  useEffect(() => { api('/oshi').then(setOshiList).catch(console.error) }, [])
+
+  const save = async (e) => {
+    e.preventDefault()
+    setError('')
+    try {
+      await api('/records', { method: 'POST', body: form })
+      setForm(null)
+      reload()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const remove = async (r) => {
+    if (!confirm(`「${r.title}」を削除しますか？`)) return
+    await api(`/records/${r.id}`, { method: 'DELETE' })
+    reload()
+  }
+
+  const monthTotal = list.reduce((sum, r) => sum + r.amount, 0)
+  const grandTotal = (stats?.byOshi || []).reduce((sum, b) => sum + b.total, 0)
+  const [y, m] = month.split('-')
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="font-bold text-lg">参戦記録・家計簿</h2>
+        <PrimaryButton onClick={() => setForm({ ...emptyForm, record_date: todayStr() })}>＋ 記録する</PrimaryButton>
+      </div>
+
+      {/* タブ切り替え */}
+      <div className="grid grid-cols-2 bg-pink-100 rounded-xl p-1 text-sm font-bold">
+        <button className={`rounded-lg py-1.5 ${tab === 'list' ? 'bg-white text-pink-600 shadow' : 'text-gray-500'}`}
+          onClick={() => setTab('list')}>📝 記録</button>
+        <button className={`rounded-lg py-1.5 ${tab === 'chart' ? 'bg-white text-pink-600 shadow' : 'text-gray-500'}`}
+          onClick={() => setTab('chart')}>📊 集計</button>
+      </div>
+
+      {tab === 'list' && (
+        <>
+          {/* 月の切り替えと月合計 */}
+          <Card className="flex items-center justify-between">
+            <button onClick={() => setMonth(shiftMonth(month, -1))} className="text-pink-500 text-xl px-2">‹</button>
+            <div className="text-center">
+              <p className="font-bold">{y}年{Number(m)}月</p>
+              <p className="text-pink-600 font-black text-xl">{formatYen(monthTotal)}</p>
+            </div>
+            <button onClick={() => setMonth(shiftMonth(month, 1))} className="text-pink-500 text-xl px-2">›</button>
+          </Card>
+
+          {list.length === 0 && (
+            <Card>
+              <Empty icon="💰" message={'この月の記録はありません。\nライブ参戦やグッズ購入を記録しましょう！'} />
+            </Card>
+          )}
+
+          {list.map((r) => (
+            <Card key={r.id} className="flex items-center gap-3">
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: r.oshi_color || '#9ca3af' }} />
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm truncate">{r.title}</p>
+                <p className="text-[11px] text-gray-400">
+                  {r.record_date}{r.oshi_name ? `・${r.oshi_name}` : ''}
+                </p>
+                {r.memo && <p className="text-[11px] text-gray-500 truncate">{r.memo}</p>}
+              </div>
+              <p className="font-bold text-sm shrink-0">{formatYen(r.amount)}</p>
+              <button onClick={() => remove(r)} className="text-gray-300 text-lg shrink-0 px-1">×</button>
+            </Card>
+          ))}
+        </>
+      )}
+
+      {tab === 'chart' && stats && (
+        <>
+          {/* 推し別の支出比率（円グラフ） */}
+          <Card>
+            <p className="text-sm font-bold mb-1">推し別の貢献度（累計 {formatYen(grandTotal)}）</p>
+            {stats.byOshi.length === 0 ? (
+              <Empty icon="📊" message={'記録がたまるとグラフが表示されます'} />
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie data={stats.byOshi} dataKey="total" nameKey="name"
+                      cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={2}>
+                      {stats.byOshi.map((b, i) => <Cell key={i} fill={b.color} />)}
+                    </Pie>
+                    <Tooltip formatter={(v) => formatYen(v)} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <ul className="space-y-1 mt-1">
+                  {stats.byOshi.map((b, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm">
+                      <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: b.color }} />
+                      <span className="flex-1 truncate">{b.name}</span>
+                      <span className="font-bold">{formatYen(b.total)}</span>
+                      <span className="text-[11px] text-gray-400 w-10 text-right">
+                        {grandTotal ? Math.round((b.total / grandTotal) * 100) : 0}%
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Card>
+
+          {/* 月別の支出推移（棒グラフ） */}
+          <Card>
+            <p className="text-sm font-bold mb-2">月別の支出推移（直近6か月）</p>
+            {stats.monthly.length === 0 ? (
+              <Empty icon="📈" message={'記録がたまるとグラフが表示されます'} />
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={stats.monthly} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} tickFormatter={(v) => `${Number(v.slice(5))}月`} />
+                  <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => v >= 10000 ? `${v / 10000}万` : v} />
+                  <Tooltip formatter={(v) => formatYen(v)} />
+                  <Bar dataKey="total" name="支出" fill="#ec4899" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
+        </>
+      )}
+
+      {form && (
+        <Modal title="参戦・購入を記録" onClose={() => setForm(null)}>
+          <form onSubmit={save}>
+            <Field label="内容 *">
+              <input className={inputClass} value={form.title} maxLength={50}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                placeholder="例：ライブ参戦（チケット代）" />
+            </Field>
+            <Field label="日付 *">
+              <input type="date" className={inputClass} value={form.record_date}
+                onChange={(e) => setForm({ ...form, record_date: e.target.value })} />
+            </Field>
+            <Field label="金額（円）">
+              <input type="number" min="0" className={inputClass} value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="例：9800" />
+            </Field>
+            <Field label="推し">
+              <OshiSelect oshiList={oshiList} value={form.oshi_id}
+                onChange={(v) => setForm({ ...form, oshi_id: v })} />
+            </Field>
+            <Field label="メモ">
+              <input className={inputClass} value={form.memo} maxLength={100}
+                onChange={(e) => setForm({ ...form, memo: e.target.value })}
+                placeholder="例：物販でタオルも購入" />
+            </Field>
+            {error && <p className="text-red-500 text-xs mb-2">{error}</p>}
+            <PrimaryButton className="w-full" disabled={!form.title.trim() || !form.record_date}>記録する</PrimaryButton>
+          </form>
+        </Modal>
+      )}
+    </div>
+  )
+}
