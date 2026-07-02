@@ -52,9 +52,12 @@
 
 ## 💾 主なDBテーブル
 
-`users`(is_admin等) / `oshi_master`(共有マスター) / `oshi`(個人の推し) / `schedules`(event_id・is_shared) /
-`records` / `goods` / `posts`(visibility・event_id) / `friendships` / `chat_rooms` / `chat_room_members` /
-`chat_messages` / `events` / `event_participants` / `push_subscriptions`
+`users`(is_admin・is_public等) / `oshi_master`(共有マスター・official_url・goods_url) / `oshi`(個人の推し) /
+`schedules`(event_id・start_time・end_time) / `schedule_shares`(予定の共有先) /
+`records`(event_id) / `goods` / `posts`(visibility・event_id) / `diary_entries`(日記・visibility) /
+`oshi_images`(着せ替え審査) / `friendships` / `chat_rooms` / `chat_room_members` /
+`chat_messages`(attachment_*) / `chat_message_reads`(既読) / `album_photos`(共有アルバム) /
+`events` / `event_participants`(savings_goal) / `push_subscriptions`
 
 テーブルはサーバー起動時に自動作成・マイグレーションされます（`CREATE TABLE IF NOT EXISTS` ＋ `ALTER ... ADD COLUMN IF NOT EXISTS`）。
 
@@ -108,13 +111,34 @@ railway up --ci -s web   # リポジトリ直下で実行（Dockerfileでビル�
 
 ## 📝 今後の拡張予定（要件整理用メモ）
 
-- [ ] メッセージの既読表示・未読バッジ
+- [x] メッセージの既読表示・未読バッジ（第2弾で対応）
 - [ ] 推しマスターの表記ゆれ吸収（別名・英語名）
 - [ ] 画像はストレージ保存に変更（現在はBase64でDB保存・2MB上限）
 - [ ] イベントのカテゴリ・ジャンル別フィルタ
 - [ ] 通知の種類ごとのON/OFF設定
 
 ## 📜 更新履歴
+
+### 2026-07-02（第2弾：バグ修正＋新機能）
+- **バグ修正**: モバイルで日付詳細ビュー等のモーダル内ボタンがボトムナビ・ホームインジケータと
+  重なって押せない問題を修正（モーダル下端に `safe-area-inset` 分の余白を確保）
+- **仕様変更（予定共有）**: 「共有する/しない」の二択から、**共有先の推し友を個別に選ぶ方式**へ変更
+  （`schedule_shares` テーブル新設。旧 `is_shared=true` の予定はその時点の推し友全員に共有した状態へ自動移行）
+- **推しの着せ替え**: ユーザーが推し画像を管理者に申請 → 管理者が承認/却下 → 承認済み画像を
+  「着せ替えギャラリー」からアイコンに選択可能（審査・判定は必ずサーバー側）
+- **共有アルバム**: DM・イベントチャットのルームごとに共有アルバム。チャットの画像を後から保存する導線あり
+- **日記帳**: 個人のオタ活日記帳（ページめくりUI）。公開範囲はつぶやきと**同じサーバー側判定ロジックを再利用**
+  （`private`/全体/同じ推し/同じイベント）。つぶやき（SNS的タイムライン）とは別画面
+- **推し詳細ページ**: 推しタイルから遷移。代表画像・ジャンル・登録人数・公式/グッズURL（**URLは管理者のみ編集**）
+- **イベント履歴**: 参加済みの過去イベント一覧。紐づく参戦記録・日記もまとめて確認
+- **貯金目標**: 参加イベントごとに目標額を設定し、紐づけた参戦記録の合計を進捗バーで表示
+- **カレンダー改善**: 予定のない月をグレーアウト＋「予定のある月だけ」表示切替。予定の**時間指定**（開始/終了時刻）に対応し、1日ビューを時刻順に表示
+- **チャット強化**: 画像・動画・ファイルの添付（種類に応じてプレビュー/ダウンロード表示）＋**既読機能**
+  （DMは「既読」、グループは「既読n人」、未読バッジ）
+- **アカウント公開/非公開**: 非公開にすると推し友以外にプロフィールが見えず、おすすめからも除外
+- DBはすべて `IF NOT EXISTS` 追加＋冪等マイグレーションで、既存データを保持したまま拡張
+
+### 2026-07-02（第1弾修正）
 
 ### 2026-07-02（第1弾修正）
 - **バグ修正**: 長文（改行なしの連続文字列を含む）が折り返されず画面外にはみ出す問題を修正。

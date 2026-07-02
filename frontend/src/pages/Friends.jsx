@@ -65,7 +65,7 @@ export default function Friends() {
         <TabBtn id="friends" label="推し友" />
         <TabBtn id="discover" label="さがす" />
         <TabBtn id="requests" label="申請" badge={requests.length} />
-        <TabBtn id="chats" label="トーク" />
+        <TabBtn id="chats" label="トーク" badge={rooms.reduce((n, r) => n + (r.unread_count || 0), 0)} />
       </div>
 
       {/* 推し友一覧 */}
@@ -135,7 +135,10 @@ export default function Friends() {
                   </p>
                   <p className="text-[11px] text-ink-soft truncate">{r.last_message || 'メッセージはまだありません'}</p>
                 </div>
-                {r.last_at && <span className="text-[10px] text-ink-soft shrink-0">{formatTime(r.last_at)}</span>}
+                <div className="shrink-0 flex flex-col items-end gap-1">
+                  {r.last_at && <span className="text-[10px] text-ink-soft">{formatTime(r.last_at)}</span>}
+                  {r.unread_count > 0 && <span className="bg-wine text-white text-[10px] font-bold rounded-full min-w-5 h-5 px-1.5 flex items-center justify-center">{r.unread_count}</span>}
+                </div>
               </Card>
             </button>
           ))}

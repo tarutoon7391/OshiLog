@@ -60,6 +60,20 @@ body {
   border-radius: 9999px;
 }
 
+/* 日記帳のページ（紙に罫線が入った手帳風） */
+.diary-page {
+  background-color: #fffdf8;
+  border: 1px solid #efe7d6;
+  box-shadow: 0 2px 8px rgba(58, 46, 42, 0.12), inset 26px 0 0 -24px rgba(139, 58, 74, 0.25);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 27px,
+    rgba(139, 58, 74, 0.07) 27px,
+    rgba(139, 58, 74, 0.07) 28px
+  );
+}
+
 /* アプリ内通知トースト（上からスライドイン） */
 @keyframes toast-in {
   from { transform: translateY(-120%); opacity: 0; }

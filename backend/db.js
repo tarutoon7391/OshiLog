@@ -135,6 +135,60 @@ CREATE TABLE IF NOT EXISTS event_participants (
   UNIQUE (event_id, user_id)
 );
 
+-- ===== 第2弾で追加した新テーブル =====
+-- 予定共有（フレンド選択式）：どの予定を誰に見せるかを個別管理する
+CREATE TABLE IF NOT EXISTS schedule_shares (
+  id SERIAL PRIMARY KEY,
+  schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+  shared_with_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (schedule_id, shared_with_user_id)
+);
+
+-- 推しの着せ替え画像（管理者承認制のギャラリー）
+CREATE TABLE IF NOT EXISTS oshi_images (
+  id SERIAL PRIMARY KEY,
+  oshi_master_id INTEGER NOT NULL REFERENCES oshi_master(id) ON DELETE CASCADE,
+  submitted_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  image_url TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- チャットルーム単位の共有アルバム
+CREATE TABLE IF NOT EXISTS album_photos (
+  id SERIAL PRIMARY KEY,
+  room_id INTEGER NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+  uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  image_url TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 日記（個人のオタ活日記帳。公開範囲はつぶやきと共通ロジック）
+CREATE TABLE IF NOT EXISTS diary_entries (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entry_date DATE NOT NULL,
+  related_event_id INTEGER REFERENCES events(id) ON DELETE SET NULL,
+  title TEXT,
+  content TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'private',
+  event_id INTEGER REFERENCES events(id) ON DELETE SET NULL,
+  oshi_id INTEGER REFERENCES oshi(id) ON DELETE SET NULL,
+  oshi_master_id INTEGER REFERENCES oshi_master(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- チャットの既読管理（DM・グループ共通）
+CREATE TABLE IF NOT EXISTS chat_message_reads (
+  id SERIAL PRIMARY KEY,
+  message_id INTEGER NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  read_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (message_id, user_id)
+);
+
 -- Web Push購読情報
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id SERIAL PRIMARY KEY,
@@ -155,10 +209,25 @@ ALTER TABLE oshi ADD COLUMN IF NOT EXISTS oshi_master_id INTEGER REFERENCES oshi
 
 ALTER TABLE schedules ADD COLUMN IF NOT EXISTS event_id INTEGER REFERENCES events(id) ON DELETE CASCADE;
 ALTER TABLE schedules ADD COLUMN IF NOT EXISTS is_shared BOOLEAN NOT NULL DEFAULT false;
+-- 第2弾：予定の時間指定（終日予定はNULL）
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS start_time TIME;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS end_time TIME;
 
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public_all';
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS event_id INTEGER REFERENCES events(id) ON DELETE SET NULL;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS oshi_master_id INTEGER REFERENCES oshi_master(id) ON DELETE SET NULL;
+
+-- 第2弾：既存テーブルへのカラム追加
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE oshi_master ADD COLUMN IF NOT EXISTS official_url TEXT;
+ALTER TABLE oshi_master ADD COLUMN IF NOT EXISTS goods_url TEXT;
+ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS savings_goal INTEGER;
+-- 参戦記録をイベントに紐付け（イベント履歴・貯金進捗の集計に使用）
+ALTER TABLE records ADD COLUMN IF NOT EXISTS event_id INTEGER REFERENCES events(id) ON DELETE SET NULL;
+-- チャットの添付（画像/ファイル/動画）
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS attachment_url TEXT;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS attachment_type TEXT;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS attachment_name TEXT;
 `;
 
 // 既存データ用のバックフィルとシード投入
@@ -178,6 +247,23 @@ async function migrateAndSeed() {
      FROM oshi o WHERE p.oshi_id = o.id AND p.oshi_master_id IS NULL`);
   // display_name が未設定なら username で埋める
   await pool.query('UPDATE users SET display_name = username WHERE display_name IS NULL');
+
+  // 第2弾：旧 is_shared フラグ（共有する/しない）を schedule_shares（フレンド選択式）へ移行する。
+  // is_shared=true の予定を「その時点の推し友全員に共有した状態」として展開する。
+  // 既に共有先が登録されている予定は移行しない（冪等）。
+  await pool.query(`
+    INSERT INTO schedule_shares (schedule_id, shared_with_user_id)
+    SELECT s.id, f.uid
+    FROM schedules s
+    JOIN LATERAL (
+      SELECT CASE WHEN fr.requester_id = s.user_id THEN fr.addressee_id ELSE fr.requester_id END AS uid
+      FROM friendships fr
+      WHERE fr.status = 'accepted' AND (fr.requester_id = s.user_id OR fr.addressee_id = s.user_id)
+    ) f ON true
+    WHERE s.is_shared = true
+      AND NOT EXISTS (SELECT 1 FROM schedule_shares ss WHERE ss.schedule_id = s.id)
+    ON CONFLICT DO NOTHING
+  `);
 
   // 管理者アカウント（初期シード）。ログインID: admin / パスワード: oshilog-admin
   const admin = await pool.query("SELECT id, is_admin FROM users WHERE username = 'admin'");

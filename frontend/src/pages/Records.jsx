@@ -7,7 +7,7 @@ import { api } from '../api'
 import { currentMonth, shiftMonth, todayStr, formatYen } from '../util'
 import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty } from '../components/ui'
 
-const emptyForm = { title: '', record_date: '', amount: '', oshi_id: null, memo: '' }
+const emptyForm = { title: '', record_date: '', amount: '', oshi_id: null, memo: '', event_id: null }
 
 // 参戦記録・家計簿＋推し別貢献度の可視化
 export default function Records() {
@@ -15,6 +15,7 @@ export default function Records() {
   const [month, setMonth] = useState(currentMonth())
   const [list, setList] = useState([])
   const [oshiList, setOshiList] = useState([])
+  const [joinedEvents, setJoinedEvents] = useState([])
   const [stats, setStats] = useState(null)
   const [form, setForm] = useState(null)
   const [error, setError] = useState('')
@@ -24,7 +25,10 @@ export default function Records() {
     api('/stats/summary').then(setStats).catch(console.error)
   }
   useEffect(() => { reload() }, [month])
-  useEffect(() => { api('/oshi').then(setOshiList).catch(console.error) }, [])
+  useEffect(() => {
+    api('/oshi').then(setOshiList).catch(console.error)
+    api('/events').then((evs) => setJoinedEvents(evs.filter((e) => e.joined))).catch(console.error)
+  }, [])
 
   const save = async (e) => {
     e.preventDefault(); setError('')
@@ -71,6 +75,7 @@ export default function Records() {
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-sm truncate">{r.title}</p>
                 <p className="text-[11px] text-ink-soft">{r.record_date}{r.oshi_name ? `・${r.oshi_name}` : ''}</p>
+                {r.event_name && <p className="text-[11px] text-wine truncate">🎪 {r.event_name}</p>}
                 {r.memo && <p className="text-[11px] text-ink-soft truncate">{r.memo}</p>}
               </div>
               <p className="font-bold text-sm shrink-0">{formatYen(r.amount)}</p>
@@ -140,6 +145,13 @@ export default function Records() {
             </Field>
             <Field label="推し">
               <OshiSelect oshiList={oshiList} value={form.oshi_id} onChange={(v) => setForm({ ...form, oshi_id: v })} />
+            </Field>
+            <Field label="イベント（任意・貯金の進捗に反映）">
+              <select className={inputClass} value={form.event_id ?? ''}
+                onChange={(e) => setForm({ ...form, event_id: e.target.value ? Number(e.target.value) : null })}>
+                <option value="">紐づけない</option>
+                {joinedEvents.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+              </select>
             </Field>
             <Field label="メモ">
               <input className={inputClass} value={form.memo} maxLength={100} onChange={(e) => setForm({ ...form, memo: e.target.value })} placeholder="例：物販でタオルも購入" />

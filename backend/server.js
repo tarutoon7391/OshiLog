@@ -58,7 +58,7 @@ app.post('/api/register', wrap(async (req, res) => {
   if (dup.rows.length) return res.status(409).json({ error: 'このユーザーIDは既に使われています' });
   const hash = await hashPassword(password);
   const r = await pool.query(
-    'INSERT INTO users (username, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id, username, display_name, avatar, bio, is_admin',
+    'INSERT INTO users (username, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id, username, display_name, avatar, bio, is_admin, is_public',
     [username, hash, displayName]);
   const user = r.rows[0];
   res.status(201).json({ user, token: signToken(user.id) });
@@ -74,23 +74,26 @@ app.post('/api/login', wrap(async (req, res) => {
   const ok = await verifyPassword(password, r.rows[0].password_hash);
   if (!ok) return res.status(401).json({ error: 'ユーザーIDまたはパスワードが違います' });
   const u = r.rows[0];
-  const user = { id: u.id, username: u.username, display_name: u.display_name, avatar: u.avatar, bio: u.bio, is_admin: u.is_admin };
+  const user = { id: u.id, username: u.username, display_name: u.display_name, avatar: u.avatar, bio: u.bio, is_admin: u.is_admin, is_public: u.is_public };
   res.json({ user, token: signToken(user.id) });
 }));
 
 app.get('/api/me', auth, wrap(async (req, res) => {
   const r = await pool.query(
-    'SELECT id, username, display_name, avatar, bio, is_admin FROM users WHERE id = $1', [req.userId]);
+    'SELECT id, username, display_name, avatar, bio, is_admin, is_public FROM users WHERE id = $1', [req.userId]);
   if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
   res.json(r.rows[0]);
 }));
 
 app.put('/api/me', auth, wrap(async (req, res) => {
-  const { display_name, avatar, bio } = req.body;
+  const { display_name, avatar, bio, is_public } = req.body;
   const r = await pool.query(
-    `UPDATE users SET display_name = COALESCE($1, display_name), avatar = $2, bio = $3, updated_at = now()
-     WHERE id = $4 RETURNING id, username, display_name, avatar, bio, is_admin`,
-    [display_name ? String(display_name).slice(0, 20) : null, avatar || null, bio ? String(bio).slice(0, 200) : null, req.userId]);
+    `UPDATE users SET display_name = COALESCE($1, display_name), avatar = $2, bio = $3,
+            is_public = COALESCE($4, is_public), updated_at = now()
+     WHERE id = $5 RETURNING id, username, display_name, avatar, bio, is_admin, is_public`,
+    [display_name ? String(display_name).slice(0, 20) : null, avatar || null,
+     bio ? String(bio).slice(0, 200) : null,
+     typeof is_public === 'boolean' ? is_public : null, req.userId]);
   res.json(r.rows[0]);
 }));
 
@@ -166,40 +169,71 @@ app.delete('/api/oshi/:id', auth, wrap(async (req, res) => {
 }));
 
 // =========================================================
-// スケジュール（推し友の共有予定も含めて返す）
+// スケジュール（フレンド選択式の共有。共有された予定も含めて返す）
 // =========================================================
+// 予定の共有先を「承認済みの推し友のみ」に絞ってサーバー側で検証し、置き換える
+async function setScheduleShares(scheduleId, ownerId, sharedWith) {
+  await pool.query('DELETE FROM schedule_shares WHERE schedule_id = $1', [scheduleId]);
+  const ids = Array.isArray(sharedWith) ? [...new Set(sharedWith.map(Number).filter(Boolean))] : [];
+  if (!ids.length) return 0;
+  const friends = await pool.query(
+    `SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END AS uid
+     FROM friendships WHERE status = 'accepted' AND (requester_id = $1 OR addressee_id = $1)`, [ownerId]);
+  const allow = new Set(friends.rows.map((r) => r.uid));
+  const valid = ids.filter((id) => allow.has(id));
+  for (const uid of valid) {
+    await pool.query(
+      'INSERT INTO schedule_shares (schedule_id, shared_with_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [scheduleId, uid]);
+  }
+  return valid.length;
+}
+
+const emitScheduleResync = (userIds) => {
+  userIds.forEach((uid) => realtime.emitToUser(uid, 'schedule:changed', {}));
+};
+
 app.get('/api/schedules', auth, wrap(async (req, res) => {
   const r = await pool.query(
     `SELECT s.*, o.name AS oshi_name, o.color AS oshi_color, u.display_name AS owner_name,
-            (s.user_id = $1) AS is_own
+            (s.user_id = $1) AS is_own,
+            COALESCE((SELECT array_agg(ss.shared_with_user_id) FROM schedule_shares ss
+                      WHERE ss.schedule_id = s.id AND s.user_id = $1), '{}') AS shared_user_ids
      FROM schedules s
      LEFT JOIN oshi o ON o.id = s.oshi_id
      JOIN users u ON u.id = s.user_id
      WHERE s.user_id = $1
-        OR (s.is_shared = true AND s.user_id IN (
-             SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END
-             FROM friendships WHERE status = 'accepted' AND (requester_id = $1 OR addressee_id = $1)))
-     ORDER BY s.event_date, s.id`, [req.userId]);
+        OR s.id IN (SELECT schedule_id FROM schedule_shares WHERE shared_with_user_id = $1)
+     ORDER BY s.event_date, s.start_time NULLS FIRST, s.id`, [req.userId]);
   res.json(r.rows);
 }));
 
 app.post('/api/schedules', auth, wrap(async (req, res) => {
-  const { oshi_id, title, event_type, event_date, memo, is_shared } = req.body;
+  const { oshi_id, title, event_type, event_date, memo, start_time, end_time, shared_with } = req.body;
   if (!title || !event_date) return res.status(400).json({ error: 'タイトルと日付を入力してください' });
+  const shareCount = Array.isArray(shared_with) ? shared_with.length : 0;
   const r = await pool.query(
-    `INSERT INTO schedules (user_id, oshi_id, title, event_type, event_date, memo, is_shared)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [req.userId, oshi_id || null, title, event_type || 'ライブ', event_date, memo || null, !!is_shared]);
+    `INSERT INTO schedules (user_id, oshi_id, title, event_type, event_date, memo, start_time, end_time, is_shared)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [req.userId, oshi_id || null, title, event_type || 'ライブ', event_date, memo || null,
+     start_time || null, end_time || null, shareCount > 0]);
+  const n = await setScheduleShares(r.rows[0].id, req.userId, shared_with);
+  if (n > 0) emitScheduleResync((shared_with || []).map(Number));
   res.status(201).json(r.rows[0]);
 }));
 
 app.put('/api/schedules/:id', auth, wrap(async (req, res) => {
-  const { oshi_id, title, event_type, event_date, memo, is_shared } = req.body;
+  const { oshi_id, title, event_type, event_date, memo, start_time, end_time, shared_with } = req.body;
+  const shareCount = Array.isArray(shared_with) ? shared_with.length : 0;
   const r = await pool.query(
-    `UPDATE schedules SET oshi_id = $1, title = $2, event_type = $3, event_date = $4, memo = $5, is_shared = $6, updated_at = now()
-     WHERE id = $7 AND user_id = $8 RETURNING *`,
-    [oshi_id || null, title, event_type, event_date, memo || null, !!is_shared, req.params.id, req.userId]);
+    `UPDATE schedules SET oshi_id = $1, title = $2, event_type = $3, event_date = $4, memo = $5,
+            start_time = $6, end_time = $7, is_shared = $8, updated_at = now()
+     WHERE id = $9 AND user_id = $10 RETURNING *`,
+    [oshi_id || null, title, event_type, event_date, memo || null,
+     start_time || null, end_time || null, shareCount > 0, req.params.id, req.userId]);
   if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
+  await setScheduleShares(r.rows[0].id, req.userId, shared_with);
+  emitScheduleResync((shared_with || []).map(Number));
   res.json(r.rows[0]);
 }));
 
@@ -219,28 +253,29 @@ app.get('/api/records', auth, wrap(async (req, res) => {
     where += ` AND to_char(r.record_date, 'YYYY-MM') = $2`;
   }
   const r = await pool.query(
-    `SELECT r.*, o.name AS oshi_name, o.color AS oshi_color
+    `SELECT r.*, o.name AS oshi_name, o.color AS oshi_color, e.name AS event_name
      FROM records r LEFT JOIN oshi o ON o.id = r.oshi_id
+     LEFT JOIN events e ON e.id = r.event_id
      WHERE ${where} ORDER BY r.record_date DESC, r.id DESC`, params);
   res.json(r.rows);
 }));
 
 app.post('/api/records', auth, wrap(async (req, res) => {
-  const { oshi_id, title, record_date, amount, memo } = req.body;
+  const { oshi_id, title, record_date, amount, memo, event_id } = req.body;
   if (!title || !record_date) return res.status(400).json({ error: '内容と日付を入力してください' });
   const r = await pool.query(
-    `INSERT INTO records (user_id, oshi_id, title, record_date, amount, memo)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [req.userId, oshi_id || null, title, record_date, Number(amount) || 0, memo || null]);
+    `INSERT INTO records (user_id, oshi_id, title, record_date, amount, memo, event_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [req.userId, oshi_id || null, title, record_date, Number(amount) || 0, memo || null, event_id || null]);
   res.status(201).json(r.rows[0]);
 }));
 
 app.put('/api/records/:id', auth, wrap(async (req, res) => {
-  const { oshi_id, title, record_date, amount, memo } = req.body;
+  const { oshi_id, title, record_date, amount, memo, event_id } = req.body;
   const r = await pool.query(
-    `UPDATE records SET oshi_id = $1, title = $2, record_date = $3, amount = $4, memo = $5, updated_at = now()
-     WHERE id = $6 AND user_id = $7 RETURNING *`,
-    [oshi_id || null, title, record_date, Number(amount) || 0, memo || null, req.params.id, req.userId]);
+    `UPDATE records SET oshi_id = $1, title = $2, record_date = $3, amount = $4, memo = $5, event_id = $6, updated_at = now()
+     WHERE id = $7 AND user_id = $8 RETURNING *`,
+    [oshi_id || null, title, record_date, Number(amount) || 0, memo || null, event_id || null, req.params.id, req.userId]);
   if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
   res.json(r.rows[0]);
 }));
@@ -278,6 +313,36 @@ app.delete('/api/goods/:id', auth, wrap(async (req, res) => {
 }));
 
 // =========================================================
+// 公開範囲の共通判定（つぶやき・日記で再利用し、二重管理を避ける）
+// alias のレコードを閲覧者 $1 が見られるかどうかのWHERE句を返す。
+// 対象テーブルは user_id / visibility / oshi_master_id / event_id を持つ前提。
+// =========================================================
+function visibilityWhere(alias) {
+  return `(
+    ${alias}.user_id = $1
+    OR ${alias}.visibility = 'public_all'
+    OR (${alias}.visibility = 'public_same_oshi' AND ${alias}.oshi_master_id IN (
+          SELECT oshi_master_id FROM oshi WHERE user_id = $1 AND oshi_master_id IS NOT NULL))
+    OR (${alias}.visibility = 'public_same_event' AND ${alias}.event_id IN (
+          SELECT event_id FROM event_participants WHERE user_id = $1))
+  )`;
+}
+
+// 投稿・日記フォームの公開範囲入力を検証し、oshi_master_id 等を解決する共通処理
+async function resolveVisibility({ userId, visibility, oshiId, eventId }) {
+  const allowed = ['private', 'public_all', 'public_same_oshi', 'public_same_event'];
+  let vis = allowed.includes(String(visibility)) ? String(visibility) : 'public_all';
+  let oshiMasterId = null;
+  if (oshiId) {
+    const o = await pool.query('SELECT oshi_master_id FROM oshi WHERE id = $1 AND user_id = $2', [oshiId, userId]);
+    oshiMasterId = o.rows.length ? o.rows[0].oshi_master_id : null;
+  }
+  if (vis === 'public_same_event' && !eventId) throw { code: 400, message: 'イベントを選択してください' };
+  if (vis === 'public_same_oshi' && !oshiMasterId) throw { code: 400, message: '「同じ推し」で公開するには推しを選んでください' };
+  return { vis, oshiMasterId, eventId: vis === 'public_same_event' ? eventId : null };
+}
+
+// =========================================================
 // つぶやき（公開範囲つき・サーバー側フィルタリング）
 // =========================================================
 // 投稿を「enrich（推し名・投稿者名を付与）」して1件返す
@@ -304,12 +369,7 @@ app.get('/api/posts', auth, wrap(async (req, res) => {
      LEFT JOIN oshi o ON o.id = p.oshi_id
      LEFT JOIN events e ON e.id = p.event_id
      JOIN users au ON au.id = p.user_id
-     WHERE p.user_id = $1
-        OR p.visibility = 'public_all'
-        OR (p.visibility = 'public_same_oshi' AND p.oshi_master_id IN (
-              SELECT oshi_master_id FROM oshi WHERE user_id = $1 AND oshi_master_id IS NOT NULL))
-        OR (p.visibility = 'public_same_event' AND p.event_id IN (
-              SELECT event_id FROM event_participants WHERE user_id = $1))
+     WHERE ${visibilityWhere('p')}
      ORDER BY p.id DESC LIMIT 100`, [req.userId]);
   res.json(r.rows);
 }));
@@ -317,30 +377,18 @@ app.get('/api/posts', auth, wrap(async (req, res) => {
 app.post('/api/posts', auth, wrap(async (req, res) => {
   const content = String(req.body.content || '').trim();
   const oshiId = req.body.oshi_id || null;
-  let visibility = String(req.body.visibility || 'public_all');
-  const eventId = req.body.event_id || null;
-  const allowed = ['private', 'public_all', 'public_same_oshi', 'public_same_event'];
   if (!content) return res.status(400).json({ error: '内容を入力してください' });
   if (content.length > 300) return res.status(400).json({ error: 'つぶやきは300文字以内にしてください' });
-  if (!allowed.includes(visibility)) visibility = 'public_all';
-  if (visibility === 'public_same_event' && !eventId) {
-    return res.status(400).json({ error: 'イベントを選択してください' });
-  }
 
-  // 「同じ推し」公開時は、投稿対象の推しからマスターIDを引く
-  let oshiMasterId = null;
-  if (oshiId) {
-    const o = await pool.query('SELECT oshi_master_id FROM oshi WHERE id = $1 AND user_id = $2', [oshiId, req.userId]);
-    oshiMasterId = o.rows.length ? o.rows[0].oshi_master_id : null;
-  }
-  if (visibility === 'public_same_oshi' && !oshiMasterId) {
-    return res.status(400).json({ error: '「同じ推し」で公開するには推しを選んでください' });
-  }
+  let resolved;
+  try {
+    resolved = await resolveVisibility({ userId: req.userId, visibility: req.body.visibility, oshiId, eventId: req.body.event_id || null });
+  } catch (e) { return res.status(e.code || 400).json({ error: e.message }); }
 
   const ins = await pool.query(
     `INSERT INTO posts (user_id, oshi_id, content, visibility, event_id, oshi_master_id)
      VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [req.userId, oshiId, content, visibility, visibility === 'public_same_event' ? eventId : null, oshiMasterId]);
+    [req.userId, oshiId, content, resolved.vis, resolved.eventId, resolved.oshiMasterId]);
   const post = await fetchEnrichedPost(ins.rows[0].id);
   realtime.emitNewPost(post); // 公開範囲に応じたルームへリアルタイム配信
   res.status(201).json(post);
@@ -387,6 +435,7 @@ app.get('/api/friends/recommendations', auth, wrap(async (req, res) => {
      JOIN oshi theirs ON theirs.oshi_master_id = m.id AND theirs.user_id <> $1
      JOIN users u ON u.id = theirs.user_id
      WHERE mine.user_id = $1
+       AND u.is_public = true
        AND NOT EXISTS (
          SELECT 1 FROM friendships f
          WHERE (f.requester_id = $1 AND f.addressee_id = u.id)
@@ -452,7 +501,10 @@ app.get('/api/chat/rooms', auth, wrap(async (req, res) => {
                        WHERE m2.room_id = r.id AND m2.user_id <> $1 LIMIT 1) END AS title,
             (SELECT content FROM chat_messages cm WHERE cm.room_id = r.id ORDER BY id DESC LIMIT 1) AS last_message,
             (SELECT created_at FROM chat_messages cm WHERE cm.room_id = r.id ORDER BY id DESC LIMIT 1) AS last_at,
-            (SELECT COUNT(*)::int FROM chat_room_members WHERE room_id = r.id) AS member_count
+            (SELECT COUNT(*)::int FROM chat_room_members WHERE room_id = r.id) AS member_count,
+            (SELECT COUNT(*)::int FROM chat_messages cm2
+               WHERE cm2.room_id = r.id AND cm2.sender_id <> $1
+                 AND NOT EXISTS (SELECT 1 FROM chat_message_reads rr WHERE rr.message_id = cm2.id AND rr.user_id = $1)) AS unread_count
      FROM chat_rooms r
      JOIN chat_room_members m ON m.room_id = r.id AND m.user_id = $1
      LEFT JOIN events e ON e.id = r.event_id
@@ -465,10 +517,52 @@ app.get('/api/chat/rooms/:id/messages', auth, wrap(async (req, res) => {
   const mem = await pool.query('SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [roomId, req.userId]);
   if (!mem.rows.length) return res.status(403).json({ error: 'このトークにアクセスできません' });
   const r = await pool.query(
-    `SELECT cm.*, u.display_name AS sender_name, u.avatar AS sender_avatar
+    `SELECT cm.*, u.display_name AS sender_name, u.avatar AS sender_avatar,
+            (SELECT COUNT(*)::int FROM chat_message_reads rr WHERE rr.message_id = cm.id AND rr.user_id <> cm.sender_id) AS read_count
      FROM chat_messages cm JOIN users u ON u.id = cm.sender_id
      WHERE cm.room_id = $1 ORDER BY cm.id ASC LIMIT 200`, [roomId]);
   res.json(r.rows);
+}));
+
+// =========================================================
+// 共有アルバム（チャットルーム単位。メンバーのみ閲覧・追加できる）
+// =========================================================
+async function assertRoomMember(roomId, userId) {
+  const mem = await pool.query('SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [roomId, userId]);
+  return mem.rows.length > 0;
+}
+
+app.get('/api/chat/rooms/:id/album', auth, wrap(async (req, res) => {
+  const roomId = Number(req.params.id);
+  if (!(await assertRoomMember(roomId, req.userId))) return res.status(403).json({ error: 'このアルバムにアクセスできません' });
+  const r = await pool.query(
+    `SELECT a.id, a.image_url, a.created_at, a.uploaded_by, u.display_name AS uploader_name
+     FROM album_photos a LEFT JOIN users u ON u.id = a.uploaded_by
+     WHERE a.room_id = $1 ORDER BY a.id DESC`, [roomId]);
+  res.json(r.rows);
+}));
+
+app.post('/api/chat/rooms/:id/album', auth, wrap(async (req, res) => {
+  const roomId = Number(req.params.id);
+  if (!(await assertRoomMember(roomId, req.userId))) return res.status(403).json({ error: 'このアルバムにアクセスできません' });
+  const image = req.body.image_url || req.body.image;
+  if (!image) return res.status(400).json({ error: '画像を選んでください' });
+  const r = await pool.query(
+    `INSERT INTO album_photos (room_id, uploaded_by, image_url) VALUES ($1, $2, $3) RETURNING id, image_url, created_at, uploaded_by`,
+    [roomId, req.userId, image]);
+  const me = await pool.query('SELECT display_name FROM users WHERE id = $1', [req.userId]);
+  const photo = { ...r.rows[0], uploader_name: me.rows[0].display_name };
+  realtime.emitToRoom(roomId, 'album:new', { roomId, photo });
+  res.status(201).json(photo);
+}));
+
+app.delete('/api/chat/rooms/:id/album/:photoId', auth, wrap(async (req, res) => {
+  const roomId = Number(req.params.id);
+  if (!(await assertRoomMember(roomId, req.userId))) return res.status(403).json({ error: 'アクセスできません' });
+  // 投稿者本人のみ削除可
+  await pool.query('DELETE FROM album_photos WHERE id = $1 AND room_id = $2 AND uploaded_by = $3',
+    [req.params.photoId, roomId, req.userId]);
+  res.json({ ok: true });
 }));
 
 // =========================================================
@@ -479,10 +573,52 @@ app.get('/api/events', auth, wrap(async (req, res) => {
     `SELECT e.*, m.name AS artist_name,
             (SELECT COUNT(*)::int FROM event_participants ep WHERE ep.event_id = e.id) AS participant_count,
             EXISTS (SELECT 1 FROM event_participants ep WHERE ep.event_id = e.id AND ep.user_id = $1) AS joined,
+            (SELECT savings_goal FROM event_participants ep WHERE ep.event_id = e.id AND ep.user_id = $1) AS savings_goal,
+            COALESCE((SELECT SUM(rec.amount)::int FROM records rec WHERE rec.event_id = e.id AND rec.user_id = $1), 0) AS saved_amount,
             (SELECT id FROM chat_rooms cr WHERE cr.type = 'event' AND cr.event_id = e.id LIMIT 1) AS room_id
      FROM events e LEFT JOIN oshi_master m ON m.id = e.artist_id
      ORDER BY e.event_date`, [req.userId]);
   res.json(r.rows);
+}));
+
+// 参加予定イベントの貯金目標額を設定（参加者本人のみ）
+app.put('/api/events/:id/savings', auth, wrap(async (req, res) => {
+  const eventId = Number(req.params.id);
+  const goal = req.body.savings_goal;
+  const value = goal == null || goal === '' ? null : Math.max(0, Number(goal) || 0);
+  const r = await pool.query(
+    `UPDATE event_participants SET savings_goal = $1 WHERE event_id = $2 AND user_id = $3 RETURNING savings_goal`,
+    [value, eventId, req.userId]);
+  if (!r.rows.length) return res.status(404).json({ error: 'このイベントに参加していません' });
+  res.json({ ok: true, savings_goal: r.rows[0].savings_goal });
+}));
+
+// イベント履歴：自分が参加した「過去の」イベントを新しい順に。参戦記録・日記の件数も返す
+app.get('/api/events/history', auth, wrap(async (req, res) => {
+  const r = await pool.query(
+    `SELECT e.*, m.name AS artist_name,
+            COALESCE((SELECT SUM(rec.amount)::int FROM records rec WHERE rec.event_id = e.id AND rec.user_id = $1), 0) AS spent_amount,
+            (SELECT COUNT(*)::int FROM records rec WHERE rec.event_id = e.id AND rec.user_id = $1) AS record_count,
+            (SELECT COUNT(*)::int FROM diary_entries d WHERE d.related_event_id = e.id AND d.user_id = $1) AS diary_count
+     FROM events e
+     JOIN event_participants ep ON ep.event_id = e.id AND ep.user_id = $1
+     LEFT JOIN oshi_master m ON m.id = e.artist_id
+     WHERE e.event_date < CURRENT_DATE
+     ORDER BY e.event_date DESC`, [req.userId]);
+  res.json(r.rows);
+}));
+
+// あるイベントに紐づく自分の参戦記録・日記
+app.get('/api/events/:id/mylog', auth, wrap(async (req, res) => {
+  const eventId = Number(req.params.id);
+  const records = await pool.query(
+    `SELECT r.*, o.name AS oshi_name, o.color AS oshi_color
+     FROM records r LEFT JOIN oshi o ON o.id = r.oshi_id
+     WHERE r.event_id = $1 AND r.user_id = $2 ORDER BY r.record_date`, [eventId, req.userId]);
+  const diaries = await pool.query(
+    `SELECT id, entry_date, title, content, visibility FROM diary_entries
+     WHERE related_event_id = $1 AND user_id = $2 ORDER BY entry_date`, [eventId, req.userId]);
+  res.json({ records: records.rows, diaries: diaries.rows });
 }));
 
 app.post('/api/events', auth, admin, wrap(async (req, res) => {
@@ -561,6 +697,184 @@ app.get('/api/admin/events', auth, admin, wrap(async (req, res) => {
      FROM events e LEFT JOIN oshi_master m ON m.id = e.artist_id
      ORDER BY e.event_date`);
   res.json(r.rows);
+}));
+
+// =========================================================
+// 日記（個人のオタ活日記帳。公開範囲はつぶやきと共通ロジックを再利用）
+// =========================================================
+async function fetchEnrichedDiary(id) {
+  const r = await pool.query(
+    `SELECT d.*, o.name AS oshi_name, o.color AS oshi_color,
+            au.display_name AS author_name, au.avatar AS author_avatar,
+            e.name AS event_name, re.name AS related_event_name
+     FROM diary_entries d
+     LEFT JOIN oshi o ON o.id = d.oshi_id
+     LEFT JOIN events e ON e.id = d.event_id
+     LEFT JOIN events re ON re.id = d.related_event_id
+     JOIN users au ON au.id = d.user_id
+     WHERE d.id = $1`, [id]);
+  return r.rows[0];
+}
+
+// 自分の日記帳（本人の全エントリを新しい日付順で）
+app.get('/api/diary', auth, wrap(async (req, res) => {
+  const r = await pool.query(
+    `SELECT d.*, o.name AS oshi_name, o.color AS oshi_color, re.name AS related_event_name
+     FROM diary_entries d
+     LEFT JOIN oshi o ON o.id = d.oshi_id
+     LEFT JOIN events re ON re.id = d.related_event_id
+     WHERE d.user_id = $1
+     ORDER BY d.entry_date DESC, d.id DESC`, [req.userId]);
+  res.json(r.rows);
+}));
+
+// みんなの公開日記（つぶやきと同じ公開範囲判定を再利用）
+app.get('/api/diary/feed', auth, wrap(async (req, res) => {
+  const r = await pool.query(
+    `SELECT d.id, d.entry_date, d.title, d.content, d.visibility, d.created_at,
+            o.name AS oshi_name, o.color AS oshi_color,
+            au.display_name AS author_name, au.avatar AS author_avatar, e.name AS event_name,
+            (d.user_id = $1) AS is_own
+     FROM diary_entries d
+     LEFT JOIN oshi o ON o.id = d.oshi_id
+     LEFT JOIN events e ON e.id = d.event_id
+     JOIN users au ON au.id = d.user_id
+     WHERE d.visibility <> 'private' AND ${visibilityWhere('d')}
+     ORDER BY d.id DESC LIMIT 100`, [req.userId]);
+  res.json(r.rows);
+}));
+
+app.post('/api/diary', auth, wrap(async (req, res) => {
+  const content = String(req.body.content || '').trim();
+  const title = req.body.title ? String(req.body.title).slice(0, 60) : null;
+  const entryDate = req.body.entry_date;
+  const oshiId = req.body.oshi_id || null;
+  const relatedEventId = req.body.related_event_id || null;
+  if (!content) return res.status(400).json({ error: '本文を入力してください' });
+  if (!entryDate) return res.status(400).json({ error: '日付を選んでください' });
+
+  let resolved;
+  try {
+    resolved = await resolveVisibility({ userId: req.userId, visibility: req.body.visibility || 'private', oshiId, eventId: req.body.event_id || null });
+  } catch (e) { return res.status(e.code || 400).json({ error: e.message }); }
+
+  const ins = await pool.query(
+    `INSERT INTO diary_entries (user_id, entry_date, related_event_id, title, content, visibility, event_id, oshi_id, oshi_master_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [req.userId, entryDate, relatedEventId, title, content, resolved.vis, resolved.eventId, oshiId, resolved.oshiMasterId]);
+  res.status(201).json(await fetchEnrichedDiary(ins.rows[0].id));
+}));
+
+app.put('/api/diary/:id', auth, wrap(async (req, res) => {
+  const content = String(req.body.content || '').trim();
+  const title = req.body.title ? String(req.body.title).slice(0, 60) : null;
+  const entryDate = req.body.entry_date;
+  const oshiId = req.body.oshi_id || null;
+  const relatedEventId = req.body.related_event_id || null;
+  if (!content || !entryDate) return res.status(400).json({ error: '日付と本文は必須です' });
+
+  let resolved;
+  try {
+    resolved = await resolveVisibility({ userId: req.userId, visibility: req.body.visibility || 'private', oshiId, eventId: req.body.event_id || null });
+  } catch (e) { return res.status(e.code || 400).json({ error: e.message }); }
+
+  const r = await pool.query(
+    `UPDATE diary_entries SET entry_date = $1, related_event_id = $2, title = $3, content = $4,
+            visibility = $5, event_id = $6, oshi_id = $7, oshi_master_id = $8, updated_at = now()
+     WHERE id = $9 AND user_id = $10 RETURNING id`,
+    [entryDate, relatedEventId, title, content, resolved.vis, resolved.eventId, oshiId, resolved.oshiMasterId, req.params.id, req.userId]);
+  if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
+  res.json(await fetchEnrichedDiary(r.rows[0].id));
+}));
+
+app.delete('/api/diary/:id', auth, wrap(async (req, res) => {
+  await pool.query('DELETE FROM diary_entries WHERE id = $1 AND user_id = $2', [req.params.id, req.userId]);
+  res.json({ ok: true });
+}));
+
+// =========================================================
+// 推しの着せ替え画像（投稿→管理者承認→ギャラリー）
+// =========================================================
+// 承認済みギャラリー（そのoshiを登録している人がアイコンに選べる）
+app.get('/api/oshi/master/:id/gallery', auth, wrap(async (req, res) => {
+  const r = await pool.query(
+    `SELECT id, image_url, created_at FROM oshi_images
+     WHERE oshi_master_id = $1 AND status = 'approved' ORDER BY id DESC`, [req.params.id]);
+  res.json(r.rows);
+}));
+
+// 推し詳細ページ（代表画像・ジャンル・登録人数・公式/グッズURL・承認ギャラリー）
+app.get('/api/oshi/master/:id', auth, wrap(async (req, res) => {
+  const m = await pool.query(
+    `SELECT m.*, (SELECT COUNT(*)::int FROM oshi o WHERE o.oshi_master_id = m.id) AS registered_count,
+            EXISTS (SELECT 1 FROM oshi o WHERE o.oshi_master_id = m.id AND o.user_id = $1) AS mine
+     FROM oshi_master m WHERE m.id = $2`, [req.userId, req.params.id]);
+  if (!m.rows.length) return res.status(404).json({ error: '見つかりません' });
+  const gallery = await pool.query(
+    `SELECT id, image_url FROM oshi_images WHERE oshi_master_id = $1 AND status = 'approved' ORDER BY id DESC`, [req.params.id]);
+  res.json({ ...m.rows[0], gallery: gallery.rows });
+}));
+
+// 着せ替え画像を管理者へ申請（アーティスト＝oshi_masterを選んで送信）
+app.post('/api/oshi/images', auth, wrap(async (req, res) => {
+  const masterId = Number(req.body.oshi_master_id);
+  const image = req.body.image_url || req.body.image;
+  if (!masterId || !image) return res.status(400).json({ error: 'アーティストと画像を選んでください' });
+  const m = await pool.query('SELECT name FROM oshi_master WHERE id = $1', [masterId]);
+  if (!m.rows.length) return res.status(404).json({ error: 'アーティストが見つかりません' });
+  await pool.query(
+    `INSERT INTO oshi_images (oshi_master_id, submitted_by, image_url, status) VALUES ($1, $2, $3, 'pending')`,
+    [masterId, req.userId, image]);
+  res.status(201).json({ ok: true });
+}));
+
+// =========================================================
+// 管理者：着せ替え審査・推しマスター編集（判定は必ずサーバー側）
+// =========================================================
+app.get('/api/admin/oshi-images', auth, admin, wrap(async (req, res) => {
+  const status = ['pending', 'approved', 'rejected'].includes(req.query.status) ? req.query.status : 'pending';
+  const r = await pool.query(
+    `SELECT i.id, i.image_url, i.status, i.created_at, i.oshi_master_id,
+            m.name AS oshi_name, u.display_name AS submitter_name
+     FROM oshi_images i
+     JOIN oshi_master m ON m.id = i.oshi_master_id
+     LEFT JOIN users u ON u.id = i.submitted_by
+     WHERE i.status = $1 ORDER BY i.id DESC`, [status]);
+  res.json(r.rows);
+}));
+
+app.post('/api/admin/oshi-images/:id/:action', auth, admin, wrap(async (req, res) => {
+  const action = req.params.action;
+  if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: '不正な操作です' });
+  const status = action === 'approve' ? 'approved' : 'rejected';
+  const r = await pool.query('UPDATE oshi_images SET status = $1 WHERE id = $2 RETURNING oshi_master_id, image_url', [status, req.params.id]);
+  if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
+  // 承認時、そのマスターにまだ代表画像がなければ設定する
+  if (status === 'approved') {
+    await pool.query('UPDATE oshi_master SET image_url = COALESCE(image_url, $1) WHERE id = $2',
+      [r.rows[0].image_url, r.rows[0].oshi_master_id]);
+  }
+  res.json({ ok: true });
+}));
+
+// 推しマスターの公式URL・グッズURL等を編集（情報の正確性のため管理者のみ）
+app.get('/api/admin/oshi-master', auth, admin, wrap(async (req, res) => {
+  const r = await pool.query(
+    `SELECT m.id, m.name, m.genre, m.image_url, m.official_url, m.goods_url,
+            (SELECT COUNT(*)::int FROM oshi o WHERE o.oshi_master_id = m.id) AS registered_count
+     FROM oshi_master m ORDER BY registered_count DESC, m.id`);
+  res.json(r.rows);
+}));
+
+app.put('/api/admin/oshi-master/:id', auth, admin, wrap(async (req, res) => {
+  const { genre, official_url, goods_url, image_url } = req.body;
+  const r = await pool.query(
+    `UPDATE oshi_master SET genre = COALESCE($1, genre), official_url = $2, goods_url = $3,
+            image_url = COALESCE($4, image_url)
+     WHERE id = $5 RETURNING *`,
+    [genre || null, official_url || null, goods_url || null, image_url || null, req.params.id]);
+  if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
+  res.json(r.rows[0]);
 }));
 
 // =========================================================
