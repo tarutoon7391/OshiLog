@@ -50,23 +50,30 @@ function init(server, pgPool) {
     socket.on('resync', async () => { try { await joinAll(); } catch (e) { console.error(e); } });
 
     // チャット送信（DM・イベント共通）。メンバーかどうかを必ずサーバー側で確認する
+    // テキストに加え、画像・ファイル・動画の添付（Base64データURL）も送れる
     socket.on('chat:send', async (data, cb) => {
       try {
         const roomId = Number(data && data.roomId);
         const content = String((data && data.content) || '').trim();
-        if (!roomId || !content) return cb && cb({ error: '入力が不正です' });
+        const att = data && data.attachment;
+        const attUrl = att && att.url ? String(att.url) : null;
+        const attType = att && ['image', 'file', 'video'].includes(att.type) ? att.type : null;
+        const attName = att && att.name ? String(att.name).slice(0, 120) : null;
+        if (!roomId || (!content && !attUrl)) return cb && cb({ error: '入力が不正です' });
         const mem = await pool.query(
           'SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [roomId, socket.userId]);
         if (!mem.rows.length) return cb && cb({ error: 'このトークにアクセスできません' });
 
         const ins = await pool.query(
-          'INSERT INTO chat_messages (room_id, sender_id, content) VALUES ($1, $2, $3) RETURNING *',
-          [roomId, socket.userId, content.slice(0, 1000)]);
+          `INSERT INTO chat_messages (room_id, sender_id, content, attachment_url, attachment_type, attachment_name)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+          [roomId, socket.userId, content.slice(0, 1000), attUrl, attType, attName]);
         const u = await pool.query('SELECT display_name, username, avatar FROM users WHERE id = $1', [socket.userId]);
         const full = {
           ...ins.rows[0],
           sender_name: u.rows[0].display_name || u.rows[0].username,
           sender_avatar: u.rows[0].avatar,
+          read_count: 0,
         };
         io.to(`room_${roomId}`).emit('chat:message', full);
         cb && cb({ ok: true, message: full });
@@ -74,9 +81,10 @@ function init(server, pgPool) {
         // 同室の他メンバーへプッシュ通知
         const others = await pool.query(
           'SELECT user_id FROM chat_room_members WHERE room_id = $1 AND user_id <> $2', [roomId, socket.userId]);
+        const preview = content ? content.slice(0, 80) : (attType === 'image' ? '📷 画像' : attType === 'video' ? '🎬 動画' : '📎 ファイル');
         push.sendToUsers(pool, others.rows.map((r) => r.user_id), {
           title: `💬 ${full.sender_name}`,
-          body: content.slice(0, 80),
+          body: preview,
           url: '/friends',
         });
       } catch (e) {
@@ -84,9 +92,43 @@ function init(server, pgPool) {
         cb && cb({ error: '送信に失敗しました' });
       }
     });
+
+    // 既読：ルーム内の自分以外のメッセージを既読にし、既読状況を送信者側へ配信する
+    socket.on('chat:read', async (data, cb) => {
+      try {
+        const roomId = Number(data && data.roomId);
+        if (!roomId) return;
+        const mem = await pool.query(
+          'SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [roomId, socket.userId]);
+        if (!mem.rows.length) return;
+        // まだ既読でない他人のメッセージを取得
+        const unread = await pool.query(
+          `SELECT id FROM chat_messages cm
+           WHERE cm.room_id = $1 AND cm.sender_id <> $2
+             AND NOT EXISTS (SELECT 1 FROM chat_message_reads r WHERE r.message_id = cm.id AND r.user_id = $2)`,
+          [roomId, socket.userId]);
+        const ids = unread.rows.map((r) => r.id);
+        if (!ids.length) return cb && cb({ ok: true, messageIds: [] });
+        for (const id of ids) {
+          await pool.query(
+            'INSERT INTO chat_message_reads (message_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [id, socket.userId]);
+        }
+        // 送信者側の既読表示を更新するため、既読になったメッセージIDを配信
+        io.to(`room_${roomId}`).emit('chat:read', { roomId, readerId: socket.userId, messageIds: ids });
+        cb && cb({ ok: true, messageIds: ids });
+      } catch (e) {
+        console.error(e);
+      }
+    });
   });
 
   return io;
+}
+
+// 指定ルーム（room_{id}）の全メンバーへイベントを配信（アルバム追加など）
+function emitToRoom(roomId, event, data) {
+  if (io) io.to(`room_${roomId}`).emit(event, data);
 }
 
 // 新規つぶやきを公開範囲に応じたルームへ配信（プライベートは配信しない）
@@ -106,4 +148,4 @@ function emitToUser(userId, event, data) {
   if (io) io.to(`user_${userId}`).emit(event, data);
 }
 
-module.exports = { init, emitNewPost, emitToUser };
+module.exports = { init, emitNewPost, emitToUser, emitToRoom };

@@ -5,8 +5,9 @@ import { Avatar } from './ui'
 const tabs = [
   { to: '/', icon: '🏠', label: 'ホーム' },
   { to: '/oshi', icon: '⭐', label: '推し' },
-  { to: '/calendar', icon: '📖', label: 'カレンダー' },
+  { to: '/calendar', icon: '📖', label: '予定' },
   { to: '/events', icon: '🎪', label: 'イベント' },
+  { to: '/diary', icon: '📔', label: '日記' },
   { to: '/friends', icon: '👥', label: '推し友' },
   { to: '/posts', icon: '✍️', label: 'つぶやき' },
 ]
@@ -30,17 +31,17 @@ export default function Layout({ user, children }) {
         <main className="flex-1 min-h-0 scroll-area p-4">{children}</main>
 
         {/* 固定ボトムナビ */}
-        <nav className="shrink-0 grid grid-cols-6 bg-paper-card border-t border-paper-line z-20">
+        <nav className="shrink-0 grid grid-cols-7 bg-paper-card border-t border-paper-line z-20 pb-[env(safe-area-inset-bottom)]">
           {tabs.map((t) => (
             <NavLink
               key={t.to}
               to={t.to}
               end={t.to === '/'}
               className={({ isActive }) =>
-                `flex flex-col items-center py-2 text-[10px] ${isActive ? 'text-wine font-bold' : 'text-ink-soft'}`
+                `flex flex-col items-center py-2 text-[9px] ${isActive ? 'text-wine font-bold' : 'text-ink-soft'}`
               }
             >
-              <span className="text-xl leading-none">{t.icon}</span>
+              <span className="text-lg leading-none">{t.icon}</span>
               <span className="mt-0.5">{t.label}</span>
             </NavLink>
           ))}

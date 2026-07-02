@@ -26,11 +26,12 @@ export function Card({ children, className = '' }) {
 }
 
 // 画面下からせり上がるモーダル
+// 下端はボトムナビ・ホームインジケータ分の余白を確保し、操作ボタンが隠れないようにする
 export function Modal({ title, onClose, children }) {
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-ink/40" onClick={onClose}>
       <div
-        className="w-full max-w-md bg-paper-card rounded-t-3xl p-5 max-h-[85vh] scroll-area"
+        className="w-full max-w-md bg-paper-card rounded-t-3xl px-5 pt-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] max-h-[85vh] scroll-area"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -101,5 +102,27 @@ export function Empty({ icon, message }) {
 export function SectionTitle({ children }) {
   return (
     <div className="inline-block bg-wine/10 text-wine text-xs font-bold rounded px-2 py-1 mb-2">{children}</div>
+  )
+}
+
+// オン/オフのトグルスイッチ（紙トーン）
+export function Toggle({ checked, onChange, label }) {
+  return (
+    <button type="button" onClick={() => onChange(!checked)} className="flex items-center gap-2 w-full">
+      <span className={`relative w-11 h-6 rounded-full shrink-0 transition-colors ${checked ? 'bg-wine' : 'bg-paper-line'}`}>
+        <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${checked ? 'left-[22px]' : 'left-0.5'}`} />
+      </span>
+      {label && <span className="text-sm text-ink text-left">{label}</span>}
+    </button>
+  )
+}
+
+// 目標額に対する進捗バー
+export function ProgressBar({ value, max, className = '' }) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
+  return (
+    <div className={`w-full bg-paper rounded-full h-2.5 overflow-hidden border border-paper-line/60 ${className}`}>
+      <div className="h-full bg-wine rounded-full transition-all" style={{ width: `${pct}%` }} />
+    </div>
   )
 }

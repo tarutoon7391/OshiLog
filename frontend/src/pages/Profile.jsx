@@ -1,33 +1,45 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, updateStoredUser } from '../api'
 import { enablePush, pushPermission, isIOS, isStandalone } from '../pwa'
-import { Card, Avatar, Field, inputClass, PrimaryButton, GhostButton, SectionTitle } from '../components/ui'
+import { readFileAsDataUrl } from '../util'
+import { Card, Avatar, Field, inputClass, PrimaryButton, GhostButton, SectionTitle, Toggle } from '../components/ui'
 
-// プロフィール（表示名・アイコン・自己紹介）＋通知設定＋ログアウト
+// プロフィール（表示名・アイコン・自己紹介・公開設定）＋着せ替え＋通知＋ログアウト
 export default function Profile({ user, onLogout, onUpdate }) {
   const [displayName, setDisplayName] = useState(user.display_name || '')
   const [bio, setBio] = useState(user.bio || '')
   const [avatar, setAvatar] = useState(user.avatar || '')
+  const [isPublic, setIsPublic] = useState(user.is_public !== false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [pushMsg, setPushMsg] = useState('')
   const [perm, setPerm] = useState(pushPermission())
+  // 着せ替えギャラリー
+  const [myOshi, setMyOshi] = useState([])
+  const [galleryOshi, setGalleryOshi] = useState(null) // 表示中のマスターID
+  const [gallery, setGallery] = useState([])
   const nav = useNavigate()
 
-  const handleFile = (e) => {
+  useEffect(() => { api('/oshi').then(setMyOshi).catch(console.error) }, [])
+
+  const openGallery = async (masterId) => {
+    setGalleryOshi(masterId)
+    try { setGallery(await api(`/oshi/master/${masterId}/gallery`)) }
+    catch { setGallery([]) }
+  }
+
+  const handleFile = async (e) => {
     const file = e.target.files[0]
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) { alert('画像は2MB以下にしてください'); return }
-    const reader = new FileReader()
-    reader.onload = () => setAvatar(reader.result)
-    reader.readAsDataURL(file)
+    try { setAvatar(await readFileAsDataUrl(file, 2)) }
+    catch (err) { alert(err.message) }
   }
 
   const save = async (e) => {
     e.preventDefault(); setError(''); setSaved(false)
     try {
-      const updated = await api('/me', { method: 'PUT', body: { display_name: displayName, bio, avatar: avatar || null } })
+      const updated = await api('/me', { method: 'PUT', body: { display_name: displayName, bio, avatar: avatar || null, is_public: isPublic } })
       updateStoredUser(updated)
       onUpdate(updated)
       setSaved(true)
@@ -53,7 +65,7 @@ export default function Profile({ user, onLogout, onUpdate }) {
           <div className="flex flex-col items-center mb-3">
             <Avatar image={avatar} name={displayName || user.username} size="w-20 h-20" textSize="text-2xl" />
             <label className="text-xs text-wine underline mt-2 cursor-pointer">
-              アイコンを変更
+              画像をアップロードして変更
               <input type="file" accept="image/*" onChange={handleFile} className="hidden" />
             </label>
             {avatar && <button type="button" className="text-[11px] text-ink-soft underline mt-1" onClick={() => setAvatar('')}>アイコンを外す</button>}
@@ -66,10 +78,62 @@ export default function Profile({ user, onLogout, onUpdate }) {
             <textarea className={inputClass + ' resize-none'} rows={3} maxLength={200} value={bio}
               onChange={(e) => setBio(e.target.value)} placeholder="推し歴・担当・よろしくなど" />
           </Field>
+
+          {/* 公開／非公開設定 */}
+          <div className="mb-3 bg-paper rounded-xl p-3">
+            <Toggle checked={isPublic} onChange={setIsPublic} label={isPublic ? 'アカウントを公開中' : 'アカウントは非公開'} />
+            <p className="text-[10px] text-ink-soft mt-1.5 leading-relaxed">
+              非公開にすると、推し友以外にはプロフィール（自己紹介・登録している推し）が見えず、
+              おすすめ（マッチング）にも表示されません。すでに推し友の人にはこれまで通り表示されます。
+            </p>
+          </div>
+
           {error && <p className="text-wine text-xs mb-2">{error}</p>}
           {saved && <p className="text-[#5e7a5b] text-xs mb-2">保存しました ✓</p>}
           <PrimaryButton className="w-full">保存する</PrimaryButton>
         </form>
+      </Card>
+
+      {/* 着せ替え：推しの公式承認ギャラリーからアイコンを選ぶ */}
+      <Card>
+        <SectionTitle>推しで着せ替え</SectionTitle>
+        <p className="text-[11px] text-ink-soft mb-2">登録している推しの、管理者承認済み画像をアイコンにできます。</p>
+        {myOshi.length === 0 ? (
+          <p className="text-[11px] text-ink-soft">推しを登録すると使えます。</p>
+        ) : (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {myOshi.map((o) => (
+              <button key={o.id} type="button" onClick={() => openGallery(o.oshi_master_id)}
+                className={`text-xs rounded-full px-3 py-1.5 border shrink-0 ${galleryOshi === o.oshi_master_id ? 'bg-wine text-white border-wine' : 'border-paper-line text-ink-soft'}`}>
+                {o.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {galleryOshi && (
+          gallery.length === 0 ? (
+            <p className="text-[11px] text-ink-soft mt-2">この推しの承認済み画像はまだありません。推し詳細から画像を申請できます。</p>
+          ) : (
+            <div className="grid grid-cols-4 gap-1.5 mt-2">
+              {gallery.map((g) => (
+                <button key={g.id} type="button" onClick={() => { setAvatar(g.image_url); setSaved(false) }}
+                  className={`aspect-square rounded-lg overflow-hidden border-2 ${avatar === g.image_url ? 'border-wine' : 'border-paper-line/60'}`}>
+                  <img src={g.image_url} alt="" className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )
+        )}
+        <p className="text-[10px] text-ink-soft mt-2">選んだあと「保存する」で確定します。</p>
+      </Card>
+
+      {/* マイページのリンク */}
+      <Card>
+        <SectionTitle>マイページ</SectionTitle>
+        <div className="grid grid-cols-2 gap-2">
+          <GhostButton onClick={() => nav('/history')}>🎪 イベント履歴</GhostButton>
+          <GhostButton onClick={() => nav('/diary')}>📔 日記帳</GhostButton>
+        </div>
       </Card>
 
       {/* 通知設定 */}
@@ -93,7 +157,7 @@ export default function Profile({ user, onLogout, onUpdate }) {
       {user.is_admin && (
         <Card>
           <SectionTitle>管理者メニュー</SectionTitle>
-          <GhostButton className="w-full" onClick={() => nav('/admin')}>🛠 イベント管理へ</GhostButton>
+          <GhostButton className="w-full" onClick={() => nav('/admin')}>🛠 管理（イベント・着せ替え審査・推し情報）へ</GhostButton>
         </Card>
       )}
 

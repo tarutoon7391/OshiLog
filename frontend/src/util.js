@@ -54,3 +54,29 @@ export function shiftMonth(month, diff) {
 export function formatTime(iso) {
   return new Date(iso).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
+
+// 予定の時刻（'18:30:00' → '18:30'。未指定はnull）
+export function formatHm(t) {
+  if (!t) return null
+  return String(t).slice(0, 5)
+}
+
+// ファイルをBase64データURLに変換する共通処理（画像・動画・ファイル添付で再利用）
+export function readFileAsDataUrl(file, maxMB = 2) {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error('ファイルがありません'))
+    if (file.size > maxMB * 1024 * 1024) return reject(new Error(`ファイルは${maxMB}MB以下にしてください`))
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error('読み込みに失敗しました'))
+    reader.readAsDataURL(file)
+  })
+}
+
+// 添付の種類をMIMEタイプから判定
+export function attachmentTypeOf(file) {
+  if (!file) return 'file'
+  if (file.type.startsWith('image/')) return 'image'
+  if (file.type.startsWith('video/')) return 'video'
+  return 'file'
+}

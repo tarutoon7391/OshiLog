@@ -14,8 +14,12 @@ import Events from './pages/Events.jsx'
 import Friends from './pages/Friends.jsx'
 import Chat from './pages/Chat.jsx'
 import Posts from './pages/Posts.jsx'
+import Diary from './pages/Diary.jsx'
 import Profile from './pages/Profile.jsx'
 import Admin from './pages/Admin.jsx'
+import OshiDetail from './pages/OshiDetail.jsx'
+import EventHistory from './pages/EventHistory.jsx'
+import AlbumView from './pages/AlbumView.jsx'
 
 export default function App() {
   const [user, setUser] = useState(getUser)
@@ -41,13 +45,17 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home user={user} />} />
           <Route path="/oshi" element={<OshiBrowse />} />
+          <Route path="/oshi/:masterId" element={<OshiDetail />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/records" element={<Records />} />
           <Route path="/goods" element={<Goods />} />
           <Route path="/events" element={<Events user={user} />} />
+          <Route path="/history" element={<EventHistory />} />
           <Route path="/friends" element={<Friends />} />
           <Route path="/chat/:roomId" element={<Chat user={user} />} />
+          <Route path="/album/:roomId" element={<AlbumView user={user} />} />
           <Route path="/posts" element={<Posts />} />
+          <Route path="/diary" element={<Diary />} />
           <Route path="/profile" element={<Profile user={user} onLogout={handleLogout} onUpdate={refreshUser} />} />
           <Route path="/admin" element={user.is_admin ? <Admin /> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />

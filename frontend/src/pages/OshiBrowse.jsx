@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { OSHI_GENRES, OSHI_COLORS } from '../util'
@@ -13,6 +14,7 @@ export default function OshiBrowse() {
   const [openGenre, setOpenGenre] = useState('アイドル')
   const [form, setForm] = useState(null)
   const [error, setError] = useState('')
+  const nav = useNavigate()
 
   const reload = () => {
     api('/oshi/browse').then(setMasters).catch(console.error)
@@ -79,14 +81,14 @@ export default function OshiBrowse() {
               <div className="grid grid-cols-2 gap-3 mt-3">
                 {list.map((m, i) => (
                   <div key={m.id} className="polaroid rounded-sm" style={{ transform: `rotate(${i % 2 ? 1.3 : -1.3}deg)` }}>
-                    <div className="aspect-square rounded-sm overflow-hidden flex items-center justify-center"
+                    <button onClick={() => nav(`/oshi/${m.id}`)} className="aspect-square w-full rounded-sm overflow-hidden flex items-center justify-center"
                       style={{ backgroundColor: m.image_url ? '#fff' : '#e8dfce' }}>
                       {m.image_url
                         ? <img src={m.image_url} alt={m.name} className="w-full h-full object-cover" />
                         : <span className="text-4xl text-wine/40 font-black">{m.name.slice(0, 1)}</span>}
-                    </div>
+                    </button>
                     <div className="px-1 pt-1.5">
-                      <p className="text-sm font-bold text-ink truncate text-center">{m.name}</p>
+                      <button onClick={() => nav(`/oshi/${m.id}`)} className="block w-full text-sm font-bold text-ink truncate text-center">{m.name}</button>
                       <p className="text-[11px] text-ink-soft text-center">{m.registered_count}人が登録中</p>
                       <div className="mt-1.5 text-center">
                         {m.mine

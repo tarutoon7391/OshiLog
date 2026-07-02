@@ -89,7 +89,7 @@ export default function Home({ user }) {
           <SectionTitle>わたしの推し</SectionTitle>
           <div className="flex gap-3 overflow-x-auto pb-1">
             {oshiList.map((o) => (
-              <Link key={o.id} to="/oshi" className="flex flex-col items-center gap-1 shrink-0">
+              <Link key={o.id} to={o.oshi_master_id ? `/oshi/${o.oshi_master_id}` : '/oshi'} className="flex flex-col items-center gap-1 shrink-0">
                 <OshiAvatar oshi={o} />
                 <span className="text-[11px] text-ink-soft max-w-14 truncate">{o.name}</span>
               </Link>
