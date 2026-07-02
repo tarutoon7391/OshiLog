@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { getUser, saveAuth, clearAuth } from './api'
 import { connectSocket, disconnectSocket } from './socket'
 import Layout from './components/Layout.jsx'
+import PushToasts from './components/Toast.jsx'
 import Login from './pages/Login.jsx'
 import Home from './pages/Home.jsx'
 import OshiBrowse from './pages/OshiBrowse.jsx'
@@ -34,6 +35,8 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      {/* アプリを開いている間のプッシュはアプリ内トーストで表示 */}
+      <PushToasts />
       <Layout user={user}>
         <Routes>
           <Route path="/" element={<Home user={user} />} />
