@@ -11,10 +11,13 @@ const tabs = [
   { to: '/friends', icon: '👥', label: '推し友' },
   { to: '/posts', icon: '✍️', label: 'つぶやき' },
 ]
+// 管理者だけフッターに「管理」タブを追加（管理者以外には表示されない）
+const adminTab = { to: '/admin', icon: '🛠', label: '管理' }
 
 // ヘッダー＋ボトムナビ固定・中央のみスクロールする共通レイアウト
 export default function Layout({ user, children }) {
   const nav = useNavigate()
+  const navTabs = user.is_admin ? [...tabs, adminTab] : tabs
   return (
     <div className="h-[100dvh] w-full flex justify-center bg-paper">
       <div className="w-full max-w-md h-full flex flex-col bg-paper/40 shadow-xl relative overflow-hidden">
@@ -30,9 +33,10 @@ export default function Layout({ user, children }) {
         {/* スクロールするコンテンツ領域（ここだけがスクロールする） */}
         <main className="flex-1 min-h-0 scroll-area p-4">{children}</main>
 
-        {/* 固定ボトムナビ */}
-        <nav className="shrink-0 grid grid-cols-7 bg-paper-card border-t border-paper-line z-20 pb-[env(safe-area-inset-bottom)]">
-          {tabs.map((t) => (
+        {/* 固定ボトムナビ（管理者は「管理」タブが増えるので列数を動的に指定） */}
+        <nav className="shrink-0 grid bg-paper-card border-t border-paper-line z-20 pb-[env(safe-area-inset-bottom)]"
+          style={{ gridTemplateColumns: `repeat(${navTabs.length}, minmax(0, 1fr))` }}>
+          {navTabs.map((t) => (
             <NavLink
               key={t.to}
               to={t.to}

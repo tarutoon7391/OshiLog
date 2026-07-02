@@ -130,14 +130,6 @@ export default function Profile({ user, onLogout, onUpdate }) {
         )}
       </Card>
 
-      {/* 管理者メニュー */}
-      {user.is_admin && (
-        <Card>
-          <SectionTitle>管理者メニュー</SectionTitle>
-          <GhostButton className="w-full" onClick={() => nav('/admin')}>🛠 管理（イベント・着せ替え審査・推し情報）へ</GhostButton>
-        </Card>
-      )}
-
       <button onClick={onLogout} className="w-full text-center text-wine text-sm py-3 underline">ログアウト</button>
     </div>
   )

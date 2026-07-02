@@ -67,7 +67,6 @@ export default function Events({ user }) {
         <h2 className="font-bold text-lg text-wine">イベント</h2>
         <div className="flex gap-2">
           <GhostButton onClick={() => nav('/history')}>🕘 履歴</GhostButton>
-          {user.is_admin && <GhostButton onClick={() => nav('/admin')}>＋ 管理</GhostButton>}
         </div>
       </div>
       <p className="text-[11px] text-ink-soft">参加するとカレンダーに追加され、参加者だけのグループトークに入れます。貯金目標も立てられます。</p>
