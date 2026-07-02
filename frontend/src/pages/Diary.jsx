@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { VISIBILITIES, VISIBILITY_MAP, formatDateJa, todayStr } from '../util'
-import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty, Avatar, Loading } from '../components/ui'
+import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty, Loading, UserChip } from '../components/ui'
 
 const emptyForm = { entry_date: '', title: '', content: '', oshi_id: null, related_event_id: null, visibility: 'private' }
 
@@ -114,11 +114,12 @@ export default function Diary() {
           {feed.map((d) => (
             <Card key={d.id}>
               <div className="flex items-center gap-2">
-                <Avatar image={d.author_avatar} name={d.author_name} size="w-8 h-8" textSize="text-sm" />
-                <div className="min-w-0">
-                  <p className="text-sm font-bold truncate">{d.author_name}{d.is_own && <span className="text-[10px] text-wine ml-1">(自分)</span>}</p>
-                  <p className="text-[10px] text-ink-soft">{formatDateJa(d.entry_date)}</p>
-                </div>
+                <UserChip userId={d.is_own ? null : d.author_id} name={d.author_name} avatar={d.author_avatar} size="w-8 h-8">
+                  <div className="min-w-0 text-left">
+                    <p className="text-sm font-bold truncate">{d.author_name}{d.is_own && <span className="text-[10px] text-wine ml-1">(自分)</span>}</p>
+                    <p className="text-[10px] text-ink-soft">{formatDateJa(d.entry_date)}</p>
+                  </div>
+                </UserChip>
                 <span className="ml-auto text-[10px] bg-paper text-ink-soft rounded-full px-2 py-0.5">{VISIBILITY_MAP[d.visibility]?.icon} {VISIBILITY_MAP[d.visibility]?.label}</span>
               </div>
               {d.title && <p className="font-bold text-sm mt-2">{d.title}</p>}

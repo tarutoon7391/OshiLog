@@ -139,15 +139,14 @@ function emitToRoom(roomId, event, data) {
   if (io) io.to(`room_${roomId}`).emit(event, data);
 }
 
-// 新規つぶやきを公開範囲に応じたルームへ配信（プライベートは配信しない）
+// 新規つぶやきを公開範囲に応じたルームへ配信（つぶやきは「全体」「同じ推し」の2種類のみ）。
+// ※ event_{id} ルームはイベントチャットで引き続き使用するが、つぶやき配信には使わない。
 function emitNewPost(post) {
   if (!io) return;
   if (post.visibility === 'public_all') {
     io.to('public_all').emit('post:new', post);
   } else if (post.visibility === 'public_same_oshi' && post.oshi_master_id) {
     io.to(`oshi_${post.oshi_master_id}`).emit('post:new', post);
-  } else if (post.visibility === 'public_same_event' && post.event_id) {
-    io.to(`event_${post.event_id}`).emit('post:new', post);
   }
 }
 

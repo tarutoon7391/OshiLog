@@ -23,6 +23,10 @@ export const VISIBILITIES = [
 ]
 export const VISIBILITY_MAP = Object.fromEntries(VISIBILITIES.map((v) => [v.key, v]))
 
+// つぶやきで選べる公開範囲は2種類のみ（プライベート＝日記、同じイベント＝イベントチャットで代替）。
+// ※ 日記は引き続き VISIBILITIES（4段階）を使う。
+export const POST_VISIBILITIES = VISIBILITIES.filter((v) => v.key === 'public_all' || v.key === 'public_same_oshi')
+
 export function daysUntil(dateStr) {
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const target = new Date(dateStr + 'T00:00:00')

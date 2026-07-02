@@ -308,6 +308,11 @@ async function migrateAndSeed() {
     ON CONFLICT DO NOTHING
   `);
 
+  // つぶやきの公開範囲を2種類（public_all / public_same_oshi）へ整理する移行（データは消さない）。
+  // - public_same_event だった投稿 → イベントチャットで代替するため public_all に変換（event_idも外す）
+  // - private だった投稿 → 投稿者本人のみ閲覧可能な状態のまま維持（visibilityは触らない）
+  await pool.query("UPDATE posts SET visibility = 'public_all', event_id = NULL WHERE visibility = 'public_same_event'");
+
   // 管理者アカウント（初期シード）。ログインID: admin / パスワード: oshilog-admin
   const admin = await pool.query("SELECT id, is_admin FROM users WHERE username = 'admin'");
   let adminId;

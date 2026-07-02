@@ -56,7 +56,7 @@ export default function App() {
           <Route path="/users/:id" element={<UserProfile user={user} />} />
           <Route path="/chat/:roomId" element={<Chat user={user} />} />
           <Route path="/album/:roomId" element={<AlbumView user={user} />} />
-          <Route path="/posts" element={<Posts />} />
+          <Route path="/posts" element={<Posts user={user} />} />
           <Route path="/diary" element={<Diary />} />
           <Route path="/profile" element={<Profile user={user} onLogout={handleLogout} onUpdate={refreshUser} />} />
           <Route path="/admin" element={user.is_admin ? <Admin /> : <Navigate to="/" replace />} />

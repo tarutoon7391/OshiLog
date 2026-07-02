@@ -1,5 +1,6 @@
 // 画面共通の小さなUI部品（紙の手帳デザイン）
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 
 // 推し・ユーザーのアイコン（画像がなければ色＋頭文字）
 export function Avatar({ image, name, color = '#8b3a4a', size = 'w-12 h-12', textSize = 'text-lg' }) {
@@ -13,6 +14,20 @@ export function Avatar({ image, name, color = '#8b3a4a', size = 'w-12 h-12', tex
     >
       {(name || '?').slice(0, 1)}
     </div>
+  )
+}
+
+// タップでそのユーザーのプロフィール（/users/:id）へ遷移する共通アイコン。
+// ユーザーのアイコン・表示名が出る全ての箇所でこれを使い、遷移導線の実装漏れを防ぐ。
+// children を渡すとアイコンの右に表示名などを並べられる（行全体がタップ可能）。
+export function UserChip({ userId, name, avatar, color = '#8b3a4a', size = 'w-9 h-9', textSize = 'text-sm', className = '', children }) {
+  const nav = useNavigate()
+  const go = (e) => { e.stopPropagation(); if (userId) nav(`/users/${userId}`) }
+  return (
+    <button type="button" onClick={go} className={`flex items-center gap-2 min-w-0 ${className}`}>
+      <Avatar image={avatar} name={name} color={color} size={size} textSize={textSize} />
+      {children}
+    </button>
   )
 }
 
