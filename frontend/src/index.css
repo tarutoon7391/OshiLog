@@ -19,6 +19,9 @@ html, body, #root {
 /* ページ全体（body）はスクロールさせない＝固定ビューポート */
 body {
   overflow: hidden;
+  /* 自由入力テキスト（改行なしの長い文字列を含む）を全画面で必ず折り返す。
+     inheritされるので投稿・チャット・自己紹介など全ての表示箇所に効く */
+  overflow-wrap: anywhere;
   color: var(--color-ink);
   font-family: "Hiragino Maru Gothic ProN", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Yu Gothic", Meiryo, sans-serif;
   background-color: var(--color-paper);
@@ -55,4 +58,13 @@ body {
 .stamp-ring {
   box-shadow: 0 0 0 2px var(--color-wine);
   border-radius: 9999px;
+}
+
+/* アプリ内通知トースト（上からスライドイン） */
+@keyframes toast-in {
+  from { transform: translateY(-120%); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+.toast-in {
+  animation: toast-in 0.3s ease-out;
 }

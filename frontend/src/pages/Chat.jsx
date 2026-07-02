@@ -86,9 +86,9 @@ export default function Chat({ user }) {
           return (
             <div key={m.id} className={`flex items-end gap-2 ${mine ? 'flex-row-reverse' : ''}`}>
               {!mine && <Avatar image={m.sender_avatar} name={m.sender_name} size="w-7 h-7" textSize="text-xs" />}
-              <div className={`max-w-[70%] ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
+              <div className={`max-w-[70%] min-w-0 ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
                 {!mine && <span className="text-[10px] text-ink-soft ml-1">{m.sender_name}</span>}
-                <div className={`rounded-2xl px-3 py-1.5 text-sm break-words ${mine ? 'bg-wine text-white' : 'bg-paper-card border border-paper-line'}`}>
+                <div className={`max-w-full rounded-2xl px-3 py-1.5 text-sm break-words whitespace-pre-wrap ${mine ? 'bg-wine text-white' : 'bg-paper-card border border-paper-line'}`}>
                   {m.content}
                 </div>
                 <span className="text-[9px] text-ink-soft mt-0.5 mx-1">{formatTime(m.created_at)}</span>
