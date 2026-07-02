@@ -578,6 +578,24 @@ app.post('/api/push/subscribe', auth, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// =========================================================
+// 集計（グラフ用）：推し別の支出合計と直近6か月の月別支出
+// =========================================================
+app.get('/api/stats/summary', auth, wrap(async (req, res) => {
+  const byOshi = await pool.query(
+    `SELECT COALESCE(o.name, 'その他') AS name, COALESCE(o.color, '#c8b7a0') AS color,
+            SUM(r.amount)::int AS total
+     FROM records r LEFT JOIN oshi o ON o.id = r.oshi_id
+     WHERE r.user_id = $1
+     GROUP BY o.name, o.color ORDER BY total DESC`, [req.userId]);
+  const monthly = await pool.query(
+    `SELECT to_char(date_trunc('month', r.record_date), 'YYYY-MM') AS month,
+            SUM(r.amount)::int AS total
+     FROM records r WHERE r.user_id = $1
+     GROUP BY 1 ORDER BY 1 DESC LIMIT 6`, [req.userId]);
+  res.json({ byOshi: byOshi.rows, monthly: monthly.rows.reverse() });
+}));
+
 // 未定義のAPIパスはJSONで404
 app.use('/api', (req, res) => res.status(404).json({ error: 'APIが見つかりません' }));
 
