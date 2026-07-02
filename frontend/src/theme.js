@@ -18,6 +18,15 @@ export function applyTheme(key) {
   s.setProperty('--color-wine', t.accent)
   s.setProperty('--color-wine-dark', t.dark)
   s.setProperty('--color-tag', t.tag)
+  // iOS/PWAのステータスバーの帯色（theme-color メタ）もアクセント色に合わせて更新する。
+  // これをしないと、いちばん上のステータスバーだけ前の色のまま残る。
+  let meta = document.querySelector('meta[name="theme-color"]')
+  if (!meta) {
+    meta = document.createElement('meta')
+    meta.setAttribute('name', 'theme-color')
+    document.head.appendChild(meta)
+  }
+  meta.setAttribute('content', t.accent)
   return t.key
 }
 
