@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api, updateStoredUser } from '../api'
 import { enablePush, pushPermission, isIOS, isStandalone } from '../pwa'
 import { readFileAsDataUrl } from '../util'
+import { THEMES, getThemeKey, setThemeKey } from '../theme'
 import { Card, Avatar, OshiAvatar, Field, inputClass, PrimaryButton, GhostButton, SectionTitle, Toggle } from '../components/ui'
 
 // プロフィール（表示名・個人アイコン・自己紹介・公開設定）＋通知＋ログアウト
@@ -17,7 +18,11 @@ export default function Profile({ user, onLogout, onUpdate }) {
   const [pushMsg, setPushMsg] = useState('')
   const [perm, setPerm] = useState(pushPermission())
   const [myOshi, setMyOshi] = useState([])
+  const [theme, setTheme] = useState(getThemeKey())
   const nav = useNavigate()
+
+  // テーマカラーを選ぶ（即時に全体へ反映＋端末に保存）
+  const chooseTheme = (key) => { setTheme(setThemeKey(key)) }
 
   useEffect(() => { api('/oshi').then(setMyOshi).catch(console.error) }, [])
 
@@ -128,6 +133,24 @@ export default function Profile({ user, onLogout, onUpdate }) {
             📱 iPhoneでは、Safariの共有ボタンから「ホーム画面に追加」すると通知が届くようになります。
           </p>
         )}
+      </Card>
+
+      {/* テーマカラー（サイト全体の色を切り替え） */}
+      <Card>
+        <SectionTitle>テーマカラー</SectionTitle>
+        <p className="text-[11px] text-ink-soft mb-2">アプリ全体の色を変えられます（この端末に保存されます）。</p>
+        <div className="grid grid-cols-5 gap-2">
+          {THEMES.map((t) => (
+            <button key={t.key} type="button" onClick={() => chooseTheme(t.key)}
+              className="flex flex-col items-center gap-1" title={t.label}>
+              <span className="w-11 h-11 rounded-full flex items-center justify-center"
+                style={{ backgroundColor: t.accent, boxShadow: theme === t.key ? `0 0 0 3px var(--color-paper-card), 0 0 0 5px ${t.accent}` : 'none' }}>
+                {theme === t.key && <span className="text-white text-lg leading-none">✓</span>}
+              </span>
+              <span className="text-[10px] text-ink-soft leading-tight text-center">{t.label}</span>
+            </button>
+          ))}
+        </div>
       </Card>
 
       <button onClick={onLogout} className="w-full text-center text-wine text-sm py-3 underline">ログアウト</button>
