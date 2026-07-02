@@ -1,48 +1,49 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
+import { Avatar } from './ui'
 
-// 画面下部のナビゲーション項目
+// 画面下部のナビゲーション
 const tabs = [
   { to: '/', icon: '🏠', label: 'ホーム' },
-  { to: '/oshi', icon: '💖', label: '推し' },
-  { to: '/schedule', icon: '📅', label: '予定' },
-  { to: '/records', icon: '💰', label: '記録' },
-  { to: '/goods', icon: '🎁', label: 'グッズ' },
-  { to: '/posts', icon: '💬', label: 'つぶやき' },
+  { to: '/oshi', icon: '⭐', label: '推し' },
+  { to: '/calendar', icon: '📖', label: 'カレンダー' },
+  { to: '/events', icon: '🎪', label: 'イベント' },
+  { to: '/friends', icon: '👥', label: '推し友' },
+  { to: '/posts', icon: '✍️', label: 'つぶやき' },
 ]
 
-// ヘッダー＋ボトムナビ付きの共通レイアウト（スマホ幅優先）
-export default function Layout({ user, onLogout, children }) {
+// ヘッダー＋ボトムナビ固定・中央のみスクロールする共通レイアウト
+export default function Layout({ user, children }) {
+  const nav = useNavigate()
   return (
-    <div className="min-h-screen bg-pink-100/60">
-      <div className="mx-auto max-w-md min-h-screen flex flex-col bg-pink-50 shadow-xl">
-        <header className="sticky top-0 z-20 bg-gradient-to-r from-pink-500 to-fuchsia-500 text-white px-4 py-3 flex items-center justify-between">
-          <h1 className="font-bold text-lg">💖 推しログ</h1>
-          <div className="flex items-center gap-2 text-sm">
-            <span>{user.username} さん</span>
-            <button onClick={onLogout} className="bg-white/25 rounded-full px-2.5 py-1 text-xs">
-              ログアウト
-            </button>
-          </div>
+    <div className="h-[100dvh] w-full flex justify-center bg-paper">
+      <div className="w-full max-w-md h-full flex flex-col bg-paper/40 shadow-xl relative overflow-hidden">
+        {/* 固定ヘッダー */}
+        <header className="shrink-0 bg-wine text-white px-4 py-3 flex items-center justify-between z-20">
+          <h1 className="font-bold text-lg tracking-wide">💗 推しログ</h1>
+          <button onClick={() => nav('/profile')} className="flex items-center gap-2">
+            <span className="text-xs text-white/90 max-w-24 truncate">{user.display_name || user.username}</span>
+            <Avatar image={user.avatar} name={user.display_name || user.username} color="#6e2c39" size="w-8 h-8" textSize="text-sm" />
+          </button>
         </header>
 
-        <main className="flex-1 p-4 pb-24">{children}</main>
+        {/* スクロールするコンテンツ領域（ここだけがスクロールする） */}
+        <main className="flex-1 min-h-0 scroll-area p-4">{children}</main>
 
-        <nav className="fixed bottom-0 inset-x-0 z-20">
-          <div className="mx-auto max-w-md grid grid-cols-6 bg-white border-t border-pink-100">
-            {tabs.map((t) => (
-              <NavLink
-                key={t.to}
-                to={t.to}
-                end={t.to === '/'}
-                className={({ isActive }) =>
-                  `flex flex-col items-center py-2 text-[10px] ${isActive ? 'text-pink-600 font-bold' : 'text-gray-400'}`
-                }
-              >
-                <span className="text-xl leading-none">{t.icon}</span>
-                <span className="mt-0.5">{t.label}</span>
-              </NavLink>
-            ))}
-          </div>
+        {/* 固定ボトムナビ */}
+        <nav className="shrink-0 grid grid-cols-6 bg-paper-card border-t border-paper-line z-20">
+          {tabs.map((t) => (
+            <NavLink
+              key={t.to}
+              to={t.to}
+              end={t.to === '/'}
+              className={({ isActive }) =>
+                `flex flex-col items-center py-2 text-[10px] ${isActive ? 'text-wine font-bold' : 'text-ink-soft'}`
+              }
+            >
+              <span className="text-xl leading-none">{t.icon}</span>
+              <span className="mt-0.5">{t.label}</span>
+            </NavLink>
+          ))}
         </nav>
       </div>
     </div>

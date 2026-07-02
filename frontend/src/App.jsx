@@ -1,42 +1,53 @@
-import { useState } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { getUser, saveUser, clearUser } from './api'
+import { useState, useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { getUser, saveAuth, clearAuth } from './api'
+import { connectSocket, disconnectSocket } from './socket'
 import Layout from './components/Layout.jsx'
 import Login from './pages/Login.jsx'
 import Home from './pages/Home.jsx'
-import Oshi from './pages/Oshi.jsx'
-import Schedule from './pages/Schedule.jsx'
+import OshiBrowse from './pages/OshiBrowse.jsx'
+import Calendar from './pages/Calendar.jsx'
 import Records from './pages/Records.jsx'
 import Goods from './pages/Goods.jsx'
+import Events from './pages/Events.jsx'
+import Friends from './pages/Friends.jsx'
+import Chat from './pages/Chat.jsx'
 import Posts from './pages/Posts.jsx'
+import Profile from './pages/Profile.jsx'
+import Admin from './pages/Admin.jsx'
 
 export default function App() {
   const [user, setUser] = useState(getUser)
 
-  const handleLogin = (u) => {
-    saveUser(u)
-    setUser(u)
-  }
+  // ログイン中はSocket.ioへ接続、ログアウトで切断
+  useEffect(() => {
+    if (user) connectSocket()
+    else disconnectSocket()
+  }, [user])
 
-  const handleLogout = () => {
-    clearUser()
-    setUser(null)
-  }
+  const handleLogin = (auth) => { saveAuth(auth); setUser(auth.user) }
+  const handleLogout = () => { disconnectSocket(); clearAuth(); setUser(null) }
+  // プロフィール更新時に表示名・アイコンを反映
+  const refreshUser = (u) => setUser(u)
 
-  // 未ログインならログイン画面だけを表示
   if (!user) return <Login onLogin={handleLogin} />
 
   return (
     <BrowserRouter>
-      <Layout user={user} onLogout={handleLogout}>
+      <Layout user={user}>
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/oshi" element={<Oshi />} />
-          <Route path="/schedule" element={<Schedule />} />
+          <Route path="/" element={<Home user={user} />} />
+          <Route path="/oshi" element={<OshiBrowse />} />
+          <Route path="/calendar" element={<Calendar />} />
           <Route path="/records" element={<Records />} />
           <Route path="/goods" element={<Goods />} />
+          <Route path="/events" element={<Events user={user} />} />
+          <Route path="/friends" element={<Friends />} />
+          <Route path="/chat/:roomId" element={<Chat user={user} />} />
           <Route path="/posts" element={<Posts />} />
-          <Route path="*" element={<Home />} />
+          <Route path="/profile" element={<Profile user={user} onLogout={handleLogout} onUpdate={refreshUser} />} />
+          <Route path="/admin" element={user.is_admin ? <Admin /> : <Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>
     </BrowserRouter>
