@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { Avatar } from './ui'
+import PullToRefresh from './PullToRefresh.jsx'
 
 // 画面下部のナビゲーション
 const tabs = [
@@ -30,8 +31,8 @@ export default function Layout({ user, children }) {
           </button>
         </header>
 
-        {/* スクロールするコンテンツ領域（ここだけがスクロールする） */}
-        <main className="flex-1 min-h-0 scroll-area p-4">{children}</main>
+        {/* スクロールするコンテンツ領域（ここだけがスクロール／上端で引っ張ると更新） */}
+        <PullToRefresh className="flex-1 min-h-0 scroll-area">{children}</PullToRefresh>
 
         {/* 固定ボトムナビ（管理者は「管理」タブが増えるので列数を動的に指定） */}
         <nav className="shrink-0 grid bg-paper-card border-t border-paper-line z-20 pb-[env(safe-area-inset-bottom)]"
