@@ -5,6 +5,14 @@ import { getSocket } from '../socket'
 import { formatDateJa, daysUntil, formatYen, formatTime } from '../util'
 import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty, ProgressBar, Loading } from '../components/ui'
 
+// Google Maps のクライアント設定（APIキー）はサーバーから実行時に取得する。
+// キーはフロントのソースに直書きせず、環境変数→この経路でのみ受け渡す。1回だけ取得してキャッシュ。
+let mapsConfigPromise = null
+function getMapsConfig() {
+  if (!mapsConfigPromise) mapsConfigPromise = api('/maps/config').catch(() => ({ enabled: false }))
+  return mapsConfigPromise
+}
+
 // 共通イベント一覧＋貯金（参戦記録＝支出とは完全に別の、入出金で管理する貯金）
 export default function Events({ user }) {
   const [events, setEvents] = useState([])
@@ -85,6 +93,9 @@ export default function Events({ user }) {
             </div>
             {ev.description && <p className="text-xs text-ink-soft mt-2">{ev.description}</p>}
 
+            {/* 会場の地図・アクセス（会場が紐づいているときだけ表示） */}
+            <VenueMap event={ev} />
+
             {/* 貯金（参加者のみ）。バーやカードをタップで入出金モーダルへ */}
             {ev.joined && (
               <div className="mt-3 bg-paper rounded-xl p-3">
@@ -151,6 +162,71 @@ export default function Events({ user }) {
           onClose={() => setSavings(null)}
           onChanged={() => { openSavings(savings.event); reload() }}
           onEditGoal={() => setGoalForm({ id: savings.event.id, name: savings.event.name, savings_goal: savings.state.savings_goal ?? '' })} />
+      )}
+    </div>
+  )
+}
+
+// 会場の地図・アクセス情報（Google Maps埋め込み＋最寄り駅ルート＋運賃メモ）。
+// 会場が未設定なら何も表示しない。APIキー未設定でもGoogleマップへのリンクにフォールバック。
+function VenueMap({ event }) {
+  const [cfg, setCfg] = useState(null)
+  const [route, setRoute] = useState(null)
+  const [routeBusy, setRouteBusy] = useState(false)
+  useEffect(() => { getMapsConfig().then(setCfg) }, [])
+
+  if (!event.venue_id) return null
+  const hasCoord = event.venue_lat != null && event.venue_lng != null
+  const q = hasCoord ? `${event.venue_lat},${event.venue_lng}` : encodeURIComponent(event.venue_address || event.venue_name || '')
+
+  const loadRoute = async () => {
+    setRouteBusy(true)
+    try { setRoute(await api(`/events/${event.id}/route`)) }
+    catch { setRoute({ enabled: false }) }
+    finally { setRouteBusy(false) }
+  }
+
+  return (
+    <div className="mt-3 bg-paper rounded-xl p-3">
+      <p className="text-xs font-bold text-wine mb-1">📍 会場アクセス</p>
+      <p className="text-sm font-bold">{event.venue_name}</p>
+      {event.venue_address && <p className="text-[11px] text-ink-soft">{event.venue_address}</p>}
+
+      {/* 地図：APIキーがあれば埋め込み、なければGoogleマップを開くリンク */}
+      {cfg && cfg.enabled && hasCoord && (
+        <iframe title={`${event.venue_name}の地図`} loading="lazy" referrerPolicy="no-referrer-when-downgrade"
+          className="w-full h-44 rounded-lg mt-2 border border-paper-line"
+          src={`https://www.google.com/maps/embed/v1/place?key=${cfg.apiKey}&q=${q}&language=ja&zoom=15`} />
+      )}
+      {cfg && !cfg.enabled && (
+        <a href={`https://www.google.com/maps/search/?api=1&query=${q}`} target="_blank" rel="noreferrer"
+          className="inline-block text-[11px] text-wine underline mt-2">Googleマップで開く ›</a>
+      )}
+
+      {/* 最寄り駅とルート */}
+      {event.venue_station && (
+        <div className="mt-2">
+          <p className="text-[11px] text-ink-soft">🚉 最寄り駅：{event.venue_station}</p>
+          <button onClick={loadRoute} disabled={routeBusy} className="text-[11px] text-wine underline mt-0.5 disabled:opacity-50">
+            {routeBusy ? '検索中…' : '最寄り駅までのルートを表示 ›'}
+          </button>
+          {route && route.enabled && route.found && (
+            <p className="text-[11px] text-ink-soft mt-1">
+              🚃 {route.station} まで 公共交通機関で約{route.duration_min}分{route.distance_m ? `・${(route.distance_m / 1000).toFixed(1)}km` : ''}
+            </p>
+          )}
+          {route && route.enabled && route.found === false && (
+            <p className="text-[11px] text-ink-soft mt-1">ルートが見つかりませんでした。</p>
+          )}
+          {route && !route.enabled && (
+            <p className="text-[11px] text-ink-soft mt-1">ルート情報は現在利用できません。</p>
+          )}
+        </div>
+      )}
+
+      {/* 運賃・所要時間メモ（管理者の任意入力。自動取得はしない） */}
+      {event.venue_fare_note && (
+        <p className="text-[11px] text-ink-soft mt-2 whitespace-pre-wrap">💰 {event.venue_fare_note}</p>
       )}
     </div>
   )

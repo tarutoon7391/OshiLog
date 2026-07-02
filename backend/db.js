@@ -232,6 +232,21 @@ CREATE TABLE IF NOT EXISTS pinned_chats (
   UNIQUE (user_id, room_id)
 );
 
+-- ===== 第4弾で追加した新テーブル =====
+-- 会場（venue）マスター：イベント会場を独立して管理し、地図表示・最寄り駅ルートに使う。
+-- 登録・編集は管理者のみ（判定はサーバー側）。最寄り駅・運賃メモ（fare_note）は任意項目。
+CREATE TABLE IF NOT EXISTS venues (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  address TEXT NOT NULL,
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  nearest_station TEXT,          -- 最寄り駅（任意）
+  fare_note TEXT,                -- 概算運賃・所要時間などの自由記述メモ（任意）
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Web Push購読情報
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id SERIAL PRIMARY KEY,
@@ -271,6 +286,9 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS event_id INTEGER REFERENCES events(
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS attachment_url TEXT;
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS attachment_type TEXT;
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS attachment_name TEXT;
+
+-- 第4弾：イベントに会場マスターを紐付け（任意。地図表示・アクセス情報に使用）
+ALTER TABLE events ADD COLUMN IF NOT EXISTS venue_id INTEGER REFERENCES venues(id) ON DELETE SET NULL;
 `;
 
 // 既存データ用のバックフィルとシード投入
