@@ -365,6 +365,66 @@ async function migrateAndSeed() {
         [e.name, e.date, e.loc, e.desc, adminId]);
     }
   }
+
+  // 全国の著名な会場（ライブ・コンサート会場）を会場マスターにシード（同名があればスキップ＝冪等）。
+  // 緯度経度は概算。管理者が「🛠 管理 → 会場」からいつでも編集・追加できる。
+  const venueSeed = [
+    // ドーム・スタジアム
+    { name: '東京ドーム', address: '東京都文京区後楽1-3-61', lat: 35.7056, lng: 139.7519, station: '水道橋駅' },
+    { name: '横浜アリーナ', address: '神奈川県横浜市港北区新横浜3-10', lat: 35.5121, lng: 139.6172, station: '新横浜駅' },
+    { name: '日産スタジアム', address: '神奈川県横浜市港北区小机町3300', lat: 35.5099, lng: 139.6062, station: '小机駅' },
+    { name: '京セラドーム大阪', address: '大阪府大阪市西区千代崎3-中2-1', lat: 34.6693, lng: 135.4761, station: 'ドーム前千代崎駅' },
+    { name: '大阪城ホール', address: '大阪府大阪市中央区大阪城3-1', lat: 34.6873, lng: 135.5320, station: '大阪城公園駅' },
+    { name: 'バンテリンドーム ナゴヤ', address: '愛知県名古屋市東区大幸南1-1-1', lat: 35.1866, lng: 136.9474, station: 'ナゴヤドーム前矢田駅' },
+    { name: 'みずほPayPayドーム福岡', address: '福岡県福岡市中央区地行浜2-2-2', lat: 33.5953, lng: 130.3623, station: '唐人町駅' },
+    { name: '札幌ドーム', address: '北海道札幌市豊平区羊ケ丘1', lat: 43.0150, lng: 141.4097, station: '福住駅' },
+    { name: 'ベルーナドーム', address: '埼玉県所沢市上山口2135', lat: 35.7595, lng: 139.4210, station: '西武球場前駅' },
+    { name: '阪神甲子園球場', address: '兵庫県西宮市甲子園町1-82', lat: 34.7211, lng: 135.3617, station: '甲子園駅' },
+    { name: '国立競技場', address: '東京都新宿区霞ヶ丘町10-1', lat: 35.6778, lng: 139.7147, station: '国立競技場駅' },
+    { name: '味の素スタジアム', address: '東京都調布市西町376-3', lat: 35.6647, lng: 139.5272, station: '飛田給駅' },
+    { name: 'ZOZOマリンスタジアム', address: '千葉県千葉市美浜区美浜1', lat: 35.6453, lng: 140.0308, station: '海浜幕張駅' },
+    { name: '横浜スタジアム', address: '神奈川県横浜市中区横浜公園', lat: 35.4433, lng: 139.6402, station: '関内駅' },
+    { name: '明治神宮野球場', address: '東京都新宿区霞ヶ丘町3-1', lat: 35.6748, lng: 139.7170, station: '外苑前駅' },
+    { name: 'MAZDA Zoom-Zoom スタジアム広島', address: '広島県広島市南区南蟹屋2-3-1', lat: 34.3915, lng: 132.4840, station: '広島駅' },
+    { name: 'ヤンマースタジアム長居', address: '大阪府大阪市東住吉区長居公園1-1', lat: 34.6132, lng: 135.5175, station: '長居駅' },
+    // アリーナ・ホール・展示場
+    { name: '日本武道館', address: '東京都千代田区北の丸公園2-3', lat: 35.6934, lng: 139.7500, station: '九段下駅' },
+    { name: 'さいたまスーパーアリーナ', address: '埼玉県さいたま市中央区新都心8', lat: 35.8950, lng: 139.6306, station: 'さいたま新都心駅' },
+    { name: '幕張メッセ', address: '千葉県千葉市美浜区中瀬2-1', lat: 35.6479, lng: 140.0347, station: '海浜幕張駅' },
+    { name: '東京国際フォーラム', address: '東京都千代田区丸の内3-5-1', lat: 35.6772, lng: 139.7630, station: '有楽町駅' },
+    { name: '国立代々木競技場第一体育館', address: '東京都渋谷区神南2-1-1', lat: 35.6672, lng: 139.7000, station: '原宿駅' },
+    { name: '東京体育館', address: '東京都渋谷区千駄ヶ谷1-17-1', lat: 35.6809, lng: 139.7148, station: '千駄ケ谷駅' },
+    { name: '有明アリーナ', address: '東京都江東区有明1-11-1', lat: 35.6419, lng: 139.7947, station: '有明駅' },
+    { name: '東京ガーデンシアター', address: '東京都江東区有明2-1-6', lat: 35.6350, lng: 139.7930, station: '有明駅' },
+    { name: 'ぴあアリーナMM', address: '神奈川県横浜市西区みなとみらい3-6-2', lat: 35.4585, lng: 139.6350, station: 'みなとみらい駅' },
+    { name: 'Kアリーナ横浜', address: '神奈川県横浜市西区みなとみらい6-2-14', lat: 35.4667, lng: 139.6270, station: '新高島駅' },
+    { name: 'パシフィコ横浜 国立大ホール', address: '神奈川県横浜市西区みなとみらい1-1-1', lat: 35.4585, lng: 139.6360, station: 'みなとみらい駅' },
+    { name: '神戸ワールド記念ホール', address: '兵庫県神戸市中央区港島中町6-12-2', lat: 34.6620, lng: 135.2130, station: '市民広場駅' },
+    { name: '日本ガイシホール', address: '愛知県名古屋市南区東又兵ヱ町5-1-16', lat: 35.1044, lng: 136.9400, station: '笠寺駅' },
+    { name: '広島グリーンアリーナ', address: '広島県広島市中区基町4-1', lat: 34.4010, lng: 132.4560, station: '紙屋町西駅' },
+    { name: 'マリンメッセ福岡', address: '福岡県福岡市博多区沖浜町7-1', lat: 33.6060, lng: 130.4160, station: null },
+    { name: '真駒内セキスイハイムアイスアリーナ', address: '北海道札幌市南区真駒内公園1-1', lat: 42.9946, lng: 141.3480, station: '真駒内駅' },
+    { name: 'セキスイハイムスーパーアリーナ', address: '宮城県宮城郡利府町菅谷字舘40-1', lat: 38.3300, lng: 140.9600, station: '利府駅' },
+    { name: '沖縄アリーナ', address: '沖縄県沖縄市山内1-16-1', lat: 26.3236, lng: 127.8060, station: null },
+    { name: 'NHKホール', address: '東京都渋谷区神南2-2-1', lat: 35.6676, lng: 139.6949, station: '原宿駅' },
+    { name: '大阪フェスティバルホール', address: '大阪府大阪市北区中之島2-3-18', lat: 34.6930, lng: 135.4970, station: '肥後橋駅' },
+    { name: 'Aichi Sky Expo（愛知県国際展示場）', address: '愛知県常滑市セントレア5-10-1', lat: 34.8580, lng: 136.8130, station: '中部国際空港駅' },
+    { name: 'インテックス大阪', address: '大阪府大阪市住之江区南港北1-5-102', lat: 34.6390, lng: 135.4230, station: '中ふ頭駅' },
+    { name: 'ポートメッセなごや', address: '愛知県名古屋市港区金城ふ頭2-2', lat: 35.0470, lng: 136.8480, station: '金城ふ頭駅' },
+    { name: 'エコパアリーナ', address: '静岡県袋井市愛野2300-1', lat: 34.7420, lng: 137.9280, station: '愛野駅' },
+  ].filter((v) => v.name && v.lat && v.lng); // プレースホルダ等の不正データを除外
+  for (const v of venueSeed) {
+    const ex = await pool.query('SELECT 1 FROM venues WHERE name = $1', [v.name]);
+    if (!ex.rows.length) {
+      await pool.query(
+        'INSERT INTO venues (name, address, latitude, longitude, nearest_station, created_by) VALUES ($1, $2, $3, $4, $5, $6)',
+        [v.name, v.address, v.lat, v.lng, v.station || null, adminId]);
+    }
+  }
+
+  // デモイベントの会場（location名が会場名と一致するもの）を紐付ける（未設定のときだけ。地図をすぐ試せるように）
+  await pool.query(
+    'UPDATE events e SET venue_id = v.id FROM venues v WHERE e.venue_id IS NULL AND e.location = v.name');
 }
 
 async function initDb() {
