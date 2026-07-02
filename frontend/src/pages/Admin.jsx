@@ -6,6 +6,8 @@ import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty, Load
 
 const emptyEvent = { name: '', artist_id: null, event_date: '', location: '', description: '', image: '', venue_id: null }
 const emptyVenue = { name: '', address: '', latitude: '', longitude: '', nearest_station: '', fare_note: '' }
+// 推しマスターの新規追加・編集フォーム（currentImage=既存の代表画像, image=新しく選んだ画像）
+const emptyOshi = { name: '', genre: 'その他', official_url: '', goods_url: '', currentImage: '', image: '' }
 
 // 管理者専用：イベント管理／会場管理／着せ替え画像の審査／推し情報の編集
 export default function Admin() {
@@ -79,13 +81,25 @@ export default function Admin() {
     loadImages()
   }
 
-  // 推し情報編集
+  // 推しマスターの代表画像を選ぶ（管理者が直接登録。2MBまで）
+  const handleOshiFile = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    try { const img = await readFileAsDataUrl(file, 2); setOshiForm((f) => ({ ...f, image: img })) }
+    catch (err) { alert(err.message) }
+  }
+
+  // 推しの新規追加・編集（名前・ジャンル・公式/グッズURL・代表画像）。判定はサーバー側でも管理者限定。
   const saveOshi = async (e) => {
     e.preventDefault(); setError('')
     try {
-      await api(`/admin/oshi-master/${oshiForm.id}`, { method: 'PUT', body: {
-        genre: oshiForm.genre, official_url: oshiForm.official_url || null, goods_url: oshiForm.goods_url || null,
-      } })
+      const body = {
+        name: oshiForm.name, genre: oshiForm.genre,
+        official_url: oshiForm.official_url || null, goods_url: oshiForm.goods_url || null,
+        image_url: oshiForm.image || null, // 新しく選んだときだけ差し替え（未選択なら既存を維持）
+      }
+      if (oshiForm.id) await api(`/admin/oshi-master/${oshiForm.id}`, { method: 'PUT', body })
+      else await api('/admin/oshi-master', { method: 'POST', body })
       setOshiForm(null); loadOshi()
     } catch (err) { setError(err.message) }
   }
@@ -193,11 +207,14 @@ export default function Admin() {
         </>
       )}
 
-      {/* 推し情報の編集（公式URL・グッズURL・ジャンル） */}
+      {/* 推し情報の管理（新規追加・名前・ジャンル・公式/グッズURL・代表画像） */}
       {tab === 'oshi' && (
         <>
-          <p className="text-[11px] text-ink-soft">公式サイト・グッズページのURLは、情報の正確性のため管理者が登録します。</p>
-          {!loading && oshiMasters.length === 0 && <Card><Empty icon="⭐" message="登録された推しがありません。" /></Card>}
+          <div className="flex justify-end">
+            <PrimaryButton onClick={() => setOshiForm({ ...emptyOshi })}>＋ 推しを追加</PrimaryButton>
+          </div>
+          <p className="text-[11px] text-ink-soft">推しの新規追加・名前・ジャンル・公式/グッズURL・代表画像は、情報の正確性のため管理者が登録・変更します。</p>
+          {!loading && oshiMasters.length === 0 && <Card><Empty icon="⭐" message="登録された推しがありません。追加しましょう。" /></Card>}
           {oshiMasters.map((m) => (
             <Card key={m.id}>
               <div className="flex items-center gap-3">
@@ -207,9 +224,9 @@ export default function Admin() {
                 <div className="min-w-0 flex-1">
                   <p className="font-bold text-sm truncate">{m.name}</p>
                   <p className="text-[11px] text-ink-soft">{m.genre}・👥{m.registered_count}人</p>
-                  <p className="text-[10px] text-ink-soft">{m.official_url ? '🌐 公式✓' : '公式✗'} / {m.goods_url ? '🛍 グッズ✓' : 'グッズ✗'}</p>
+                  <p className="text-[10px] text-ink-soft">{m.image_url ? '🖼 画像✓' : '画像✗'} / {m.official_url ? '🌐 公式✓' : '公式✗'} / {m.goods_url ? '🛍 グッズ✓' : 'グッズ✗'}</p>
                 </div>
-                <GhostButton onClick={() => setOshiForm({ id: m.id, genre: m.genre, official_url: m.official_url || '', goods_url: m.goods_url || '' })}>編集</GhostButton>
+                <GhostButton onClick={() => setOshiForm({ id: m.id, name: m.name, genre: m.genre, official_url: m.official_url || '', goods_url: m.goods_url || '', currentImage: m.image_url || '', image: '' })}>編集</GhostButton>
               </div>
             </Card>
           ))}
@@ -301,20 +318,34 @@ export default function Admin() {
         </Modal>
       )}
 
-      {/* 推し情報 編集モーダル */}
+      {/* 推し 新規追加・編集モーダル */}
       {oshiForm && (
-        <Modal title="推し情報を編集" onClose={() => setOshiForm(null)}>
+        <Modal title={oshiForm.id ? '推しを編集' : '推しを追加'} onClose={() => setOshiForm(null)}>
           <form onSubmit={saveOshi}>
-            <Field label="ジャンル">
-              <input className={inputClass} value={oshiForm.genre} onChange={(e) => setOshiForm({ ...oshiForm, genre: e.target.value })} />
+            <Field label="名前 *">
+              <input className={inputClass} value={oshiForm.name} maxLength={60}
+                onChange={(e) => setOshiForm({ ...oshiForm, name: e.target.value })} placeholder="例：推乃 愛" />
             </Field>
+            <Field label="ジャンル">
+              <input className={inputClass} value={oshiForm.genre} onChange={(e) => setOshiForm({ ...oshiForm, genre: e.target.value })} placeholder="例：アイドル" />
+            </Field>
+            <Field label="代表画像（任意・2MBまで）">
+              <input type="file" accept="image/*" onChange={handleOshiFile} className="text-xs" />
+            </Field>
+            {(oshiForm.image || oshiForm.currentImage) && (
+              <div className="flex items-center gap-3 mb-3">
+                <img src={oshiForm.image || oshiForm.currentImage} alt="プレビュー" className="w-16 h-16 rounded-lg object-cover" />
+                <span className="text-[11px] text-ink-soft">{oshiForm.image ? '新しい画像に差し替えます' : '現在の代表画像'}</span>
+                {oshiForm.image && <button type="button" className="text-xs text-ink-soft underline" onClick={() => setOshiForm({ ...oshiForm, image: '' })}>取消</button>}
+              </div>
+            )}
             <Field label="公式サイトURL">
               <input className={inputClass} value={oshiForm.official_url} onChange={(e) => setOshiForm({ ...oshiForm, official_url: e.target.value })} placeholder="https://…" />
             </Field>
             <Field label="グッズページURL">
               <input className={inputClass} value={oshiForm.goods_url} onChange={(e) => setOshiForm({ ...oshiForm, goods_url: e.target.value })} placeholder="https://…" />
             </Field>
-            <PrimaryButton className="w-full">保存する</PrimaryButton>
+            <PrimaryButton className="w-full" disabled={!oshiForm.name.trim()}>{oshiForm.id ? '保存する' : '追加する'}</PrimaryButton>
           </form>
         </Modal>
       )}

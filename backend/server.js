@@ -1215,7 +1215,8 @@ app.post('/api/admin/oshi-images/:id/:action', auth, admin, wrap(async (req, res
   res.json({ ok: true });
 }));
 
-// 推しマスターの公式URL・グッズURL等を編集（情報の正確性のため管理者のみ）
+// 推しマスターの管理（新規追加・名前/ジャンル/公式URL/グッズURL/代表画像の編集）。
+// 情報の正確性と一元管理のため、いずれも管理者のみ（判定はサーバー側）。
 app.get('/api/admin/oshi-master', auth, admin, wrap(async (req, res) => {
   const r = await pool.query(
     `SELECT m.id, m.name, m.genre, m.image_url, m.official_url, m.goods_url,
@@ -1224,13 +1225,40 @@ app.get('/api/admin/oshi-master', auth, admin, wrap(async (req, res) => {
   res.json(r.rows);
 }));
 
+// 推しを新規追加（まだ誰も登録していない推しも管理者が先に登録できる）
+app.post('/api/admin/oshi-master', auth, admin, wrap(async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const genre = String(req.body.genre || 'その他').trim() || 'その他';
+  const image_url = req.body.image_url || req.body.image || null;
+  const official_url = req.body.official_url || null;
+  const goods_url = req.body.goods_url || null;
+  if (!name) return res.status(400).json({ error: '推しの名前は必須です' });
+  const dup = await pool.query('SELECT 1 FROM oshi_master WHERE name = $1', [name]);
+  if (dup.rows.length) return res.status(409).json({ error: '同じ名前の推しがすでに登録されています' });
+  const r = await pool.query(
+    `INSERT INTO oshi_master (name, genre, image_url, official_url, goods_url)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [name, genre, image_url, official_url, goods_url]);
+  res.status(201).json(r.rows[0]);
+}));
+
 app.put('/api/admin/oshi-master/:id', auth, admin, wrap(async (req, res) => {
   const { genre, official_url, goods_url, image_url } = req.body;
+  const name = req.body.name != null && String(req.body.name).trim() ? String(req.body.name).trim() : null;
+  // 名前を変更する場合は他マスターとの重複を防ぐ
+  if (name) {
+    const dup = await pool.query('SELECT 1 FROM oshi_master WHERE name = $1 AND id <> $2', [name, req.params.id]);
+    if (dup.rows.length) return res.status(409).json({ error: '同じ名前の推しがすでに登録されています' });
+  }
+  // image_url は「指定があれば差し替え、なければ既存を維持」（COALESCEで上書き）
   const r = await pool.query(
-    `UPDATE oshi_master SET genre = COALESCE($1, genre), official_url = $2, goods_url = $3,
-            image_url = COALESCE($4, image_url)
-     WHERE id = $5 RETURNING *`,
-    [genre || null, official_url || null, goods_url || null, image_url || null, req.params.id]);
+    `UPDATE oshi_master SET
+        name = COALESCE($1, name),
+        genre = COALESCE($2, genre),
+        official_url = $3, goods_url = $4,
+        image_url = COALESCE($5, image_url)
+     WHERE id = $6 RETURNING *`,
+    [name, genre || null, official_url || null, goods_url || null, image_url || null, req.params.id]);
   if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
   res.json(r.rows[0]);
 }));
