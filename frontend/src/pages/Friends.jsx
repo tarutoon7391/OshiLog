@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { formatTime } from '../util'
-import { Card, Avatar, PrimaryButton, GhostButton, Empty, SectionTitle, Loading } from '../components/ui'
+import { Card, Avatar, PrimaryButton, GhostButton, Empty, SectionTitle, Loading, UserChip } from '../components/ui'
 
 // 推し友：おすすめマッチング・申請・推し友一覧（トークへの入口）＋チャット一覧
 export default function Friends() {
@@ -86,9 +86,10 @@ export default function Friends() {
           {!loading && friends.length === 0 && <Card><Empty icon="👥" message={'まだ推し友がいません。\n「さがす」から同じ推しの人を見つけましょう！'} /></Card>}
           {friends.map((f) => (
             <Card key={f.id} className="flex items-center gap-3">
-              <Avatar image={f.avatar} name={f.display_name} />
-              <p className="flex-1 font-bold text-sm truncate">{f.display_name}</p>
-              {f.room_id && <PrimaryButton onClick={() => nav(`/chat/${f.room_id}`)}>💬 トーク</PrimaryButton>}
+              <UserChip userId={f.id} name={f.display_name} avatar={f.avatar} size="w-12 h-12" textSize="text-lg">
+                <p className="font-bold text-sm truncate text-left">{f.display_name}</p>
+              </UserChip>
+              {f.room_id && <PrimaryButton className="ml-auto" onClick={() => nav(`/chat/${f.room_id}`)}>💬 トーク</PrimaryButton>}
             </Card>
           ))}
         </>
@@ -101,13 +102,14 @@ export default function Friends() {
           {!loading && recos.length === 0 && <Card><Empty icon="🔍" message={'おすすめが見つかりませんでした。\n推しを登録すると同担の人が表示されます。'} /></Card>}
           {recos.map((u) => (
             <Card key={u.id} className="flex items-center gap-3">
-              <Avatar image={u.avatar} name={u.display_name} />
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-sm truncate">{u.display_name}</p>
-                <p className="text-[11px] text-ink-soft truncate">
-                  {u.shared_oshi.filter(Boolean).join('・')} を推しています
-                </p>
-              </div>
+              <UserChip userId={u.id} name={u.display_name} avatar={u.avatar} className="flex-1">
+                <div className="min-w-0 text-left">
+                  <p className="font-bold text-sm truncate">{u.display_name}</p>
+                  <p className="text-[11px] text-ink-soft truncate">
+                    {u.shared_oshi.filter(Boolean).join('・')} を推しています
+                  </p>
+                </div>
+              </UserChip>
               <PrimaryButton disabled={busy === u.id} onClick={() => request(u)}>申請</PrimaryButton>
             </Card>
           ))}
@@ -120,8 +122,9 @@ export default function Friends() {
           {!loading && requests.length === 0 && <Card><Empty icon="📨" message="届いている申請はありません" /></Card>}
           {requests.map((f) => (
             <Card key={f.friendship_id} className="flex items-center gap-3">
-              <Avatar image={f.avatar} name={f.display_name} />
-              <p className="flex-1 font-bold text-sm truncate">{f.display_name}</p>
+              <UserChip userId={f.id} name={f.display_name} avatar={f.avatar} className="flex-1">
+                <p className="font-bold text-sm truncate text-left">{f.display_name}</p>
+              </UserChip>
               <PrimaryButton onClick={() => accept(f)}>承認</PrimaryButton>
               <GhostButton onClick={() => reject(f)}>拒否</GhostButton>
             </Card>
@@ -136,8 +139,10 @@ export default function Friends() {
           {rooms.map((r) => (
             <div key={r.id} onClick={() => nav(`/chat/${r.id}`)} className="cursor-pointer">
               <Card className="flex items-center gap-3">
-                <div className={`w-11 h-11 rounded-full flex items-center justify-center text-xl shrink-0 relative ${r.type === 'event' ? 'bg-wine/15' : 'bg-paper'}`}>
-                  {r.type === 'event' ? '🎪' : '💬'}
+                <div className="relative shrink-0">
+                  {r.type === 'event'
+                    ? <div className="w-11 h-11 rounded-full flex items-center justify-center text-xl bg-wine/15">🎪</div>
+                    : <UserChip userId={r.other_user_id} name={r.title} avatar={r.other_user_avatar} size="w-11 h-11" textSize="text-lg" />}
                   {r.pinned && <span className="absolute -top-1 -left-1 text-xs">📌</span>}
                 </div>
                 <div className="flex-1 min-w-0">

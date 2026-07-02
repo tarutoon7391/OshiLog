@@ -365,31 +365,31 @@ async function resolveVisibility({ userId, visibility, oshiId, eventId }) {
 }
 
 // =========================================================
-// つぶやき（公開範囲つき・サーバー側フィルタリング）
+// つぶやき（公開範囲は「全体」「同じ推し」の2種類・サーバー側フィルタリング）
 // =========================================================
+// つぶやきで選べる公開範囲（プライベートは日記、同じイベントはイベントチャットで代替するため廃止）
+const POST_VISIBILITIES = ['public_all', 'public_same_oshi'];
+
 // 投稿を「enrich（推し名・投稿者名を付与）」して1件返す
 async function fetchEnrichedPost(id) {
   const r = await pool.query(
     `SELECT p.*, o.name AS oshi_name, o.color AS oshi_color,
-            au.display_name AS author_name, au.username AS author_username, au.avatar AS author_avatar,
-            e.name AS event_name
+            au.display_name AS author_name, au.username AS author_username, au.avatar AS author_avatar
      FROM posts p
      LEFT JOIN oshi o ON o.id = p.oshi_id
-     LEFT JOIN events e ON e.id = p.event_id
      JOIN users au ON au.id = p.user_id
      WHERE p.id = $1`, [id]);
   return r.rows[0];
 }
 
 app.get('/api/posts', auth, wrap(async (req, res) => {
-  // 閲覧者の条件（本人／同じ推し／同じイベント）に応じてサーバー側で絞り込む
+  // 閲覧者の条件（本人／全体／同じ推し）に応じてサーバー側で絞り込む。
+  // ※ 同じ推し限定は、閲覧者が投稿の oshi_master_id を実際に登録している場合のみ可視。
   const r = await pool.query(
     `SELECT p.*, o.name AS oshi_name, o.color AS oshi_color,
-            au.display_name AS author_name, au.username AS author_username, au.avatar AS author_avatar,
-            e.name AS event_name
+            au.display_name AS author_name, au.username AS author_username, au.avatar AS author_avatar
      FROM posts p
      LEFT JOIN oshi o ON o.id = p.oshi_id
-     LEFT JOIN events e ON e.id = p.event_id
      JOIN users au ON au.id = p.user_id
      WHERE ${visibilityWhere('p')}
        AND NOT EXISTS (SELECT 1 FROM blocks b
@@ -405,22 +405,28 @@ app.post('/api/posts', auth, wrap(async (req, res) => {
   if (!content) return res.status(400).json({ error: '内容を入力してください' });
   if (content.length > 300) return res.status(400).json({ error: 'つぶやきは300文字以内にしてください' });
 
+  // つぶやきの公開範囲は2種類に限定（不正・未指定は「全体」に丸める）
+  let visibility = POST_VISIBILITIES.includes(req.body.visibility) ? req.body.visibility : 'public_all';
   let resolved;
   try {
-    resolved = await resolveVisibility({ userId: req.userId, visibility: req.body.visibility, oshiId, eventId: req.body.event_id || null });
+    resolved = await resolveVisibility({ userId: req.userId, visibility, oshiId, eventId: null });
   } catch (e) { return res.status(e.code || 400).json({ error: e.message }); }
 
   const ins = await pool.query(
-    `INSERT INTO posts (user_id, oshi_id, content, visibility, event_id, oshi_master_id)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [req.userId, oshiId, content, resolved.vis, resolved.eventId, resolved.oshiMasterId]);
+    `INSERT INTO posts (user_id, oshi_id, content, visibility, oshi_master_id)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [req.userId, oshiId, content, resolved.vis, resolved.oshiMasterId]);
   const post = await fetchEnrichedPost(ins.rows[0].id);
   realtime.emitNewPost(post); // 公開範囲に応じたルームへリアルタイム配信
   res.status(201).json(post);
 }));
 
 app.delete('/api/posts/:id', auth, wrap(async (req, res) => {
-  await pool.query('DELETE FROM posts WHERE id = $1 AND user_id = $2', [req.params.id, req.userId]);
+  // 投稿者本人のみ削除可（サーバー側で必ず検証）。本人以外は403で拒否する
+  const p = await pool.query('SELECT user_id FROM posts WHERE id = $1', [req.params.id]);
+  if (!p.rows.length) return res.status(404).json({ error: '見つかりません' });
+  if (p.rows[0].user_id !== req.userId) return res.status(403).json({ error: '自分のつぶやきしか削除できません' });
+  await pool.query('DELETE FROM posts WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 }));
 
@@ -614,6 +620,10 @@ app.get('/api/chat/rooms', auth, wrap(async (req, res) => {
             CASE WHEN r.type = 'event' THEN e.name
                  ELSE (SELECT u2.display_name FROM chat_room_members m2 JOIN users u2 ON u2.id = m2.user_id
                        WHERE m2.room_id = r.id AND m2.user_id <> $1 LIMIT 1) END AS title,
+            (SELECT u2.id FROM chat_room_members m2 JOIN users u2 ON u2.id = m2.user_id
+             WHERE m2.room_id = r.id AND m2.user_id <> $1 LIMIT 1) AS other_user_id,
+            (SELECT u2.avatar FROM chat_room_members m2 JOIN users u2 ON u2.id = m2.user_id
+             WHERE m2.room_id = r.id AND m2.user_id <> $1 LIMIT 1) AS other_user_avatar,
             (SELECT content FROM chat_messages cm WHERE cm.room_id = r.id ORDER BY id DESC LIMIT 1) AS last_message,
             (SELECT created_at FROM chat_messages cm WHERE cm.room_id = r.id ORDER BY id DESC LIMIT 1) AS last_at,
             (SELECT COUNT(*)::int FROM chat_room_members WHERE room_id = r.id) AS member_count,
@@ -640,6 +650,17 @@ app.post('/api/chat/rooms/:id/pin', auth, wrap(async (req, res) => {
 app.delete('/api/chat/rooms/:id/pin', auth, wrap(async (req, res) => {
   await pool.query('DELETE FROM pinned_chats WHERE user_id = $1 AND room_id = $2', [req.userId, Number(req.params.id)]);
   res.json({ ok: true, pinned: false });
+}));
+
+// トークルームのメンバー一覧（メンバーのみ取得可）。各アイコンからプロフィールへ遷移するのに使う
+app.get('/api/chat/rooms/:id/members', auth, wrap(async (req, res) => {
+  const roomId = Number(req.params.id);
+  const mem = await pool.query('SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [roomId, req.userId]);
+  if (!mem.rows.length) return res.status(403).json({ error: 'アクセスできません' });
+  const r = await pool.query(
+    `SELECT u.id, u.display_name, u.avatar FROM chat_room_members m
+     JOIN users u ON u.id = m.user_id WHERE m.room_id = $1 ORDER BY u.display_name`, [roomId]);
+  res.json(r.rows);
 }));
 
 app.get('/api/chat/rooms/:id/messages', auth, wrap(async (req, res) => {
@@ -928,7 +949,7 @@ app.get('/api/diary', auth, wrap(async (req, res) => {
 app.get('/api/diary/feed', auth, wrap(async (req, res) => {
   const r = await pool.query(
     `SELECT d.id, d.entry_date, d.title, d.content, d.visibility, d.created_at,
-            o.name AS oshi_name, o.color AS oshi_color,
+            o.name AS oshi_name, o.color AS oshi_color, d.user_id AS author_id,
             au.display_name AS author_name, au.avatar AS author_avatar, e.name AS event_name,
             (d.user_id = $1) AS is_own
      FROM diary_entries d

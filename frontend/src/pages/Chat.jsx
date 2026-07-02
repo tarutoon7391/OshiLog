@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { formatTime, readFileAsDataUrl, attachmentTypeOf } from '../util'
-import { Avatar, Modal, PrimaryButton, GhostButton, Loading } from '../components/ui'
+import { Avatar, Modal, PrimaryButton, GhostButton, Loading, UserChip } from '../components/ui'
 
 // チャット画面（DM・イベント共通。Socket.ioでリアルタイム＋既読＋添付＋共有アルバム）
 export default function Chat({ user }) {
@@ -16,6 +16,7 @@ export default function Chat({ user }) {
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(null) // 送信確認待ちの添付 { url, type, name }
+  const [members, setMembers] = useState(null) // メンバー一覧モーダル（イベントチャット）
   const bottomRef = useRef(null)
   const fileRef = useRef(null)
   const taRef = useRef(null)
@@ -122,7 +123,10 @@ export default function Chat({ user }) {
         <span className="text-lg">{room?.type === 'event' ? '🎪' : '💬'}</span>
         <div className="min-w-0 flex-1">
           <p className="font-bold text-sm truncate">{room?.title || 'トーク'}</p>
-          {room?.type === 'event' && <p className="text-[10px] text-ink-soft">参加者 {room.member_count}人のグループトーク</p>}
+          {room?.type === 'event' && (
+            <button onClick={() => api(`/chat/rooms/${rid}/members`).then(setMembers).catch(() => {})}
+              className="text-[10px] text-wine underline">参加者 {room.member_count}人 ›</button>
+          )}
         </div>
         <button onClick={() => nav(`/album/${rid}`)} className="text-xs text-wine border border-wine/40 rounded-full px-2.5 py-1 shrink-0">📸 アルバム</button>
       </div>
@@ -136,7 +140,7 @@ export default function Chat({ user }) {
           const readLabel = mine && m.read_count > 0 ? (isDm ? '既読' : `既読 ${m.read_count}`) : null
           return (
             <div key={m.id} className={`flex items-end gap-2 ${mine ? 'flex-row-reverse' : ''}`}>
-              {!mine && <Avatar image={m.sender_avatar} name={m.sender_name} size="w-7 h-7" textSize="text-xs" />}
+              {!mine && <UserChip userId={m.sender_id} name={m.sender_name} avatar={m.sender_avatar} size="w-7 h-7" textSize="text-xs" />}
               <div className={`max-w-[72%] min-w-0 ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
                 {!mine && <span className="text-[10px] text-ink-soft ml-1">{m.sender_name}</span>}
 
@@ -189,6 +193,19 @@ export default function Chat({ user }) {
           onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 112) + 'px' }} />
         <button type="submit" disabled={!text.trim()} className="bg-wine text-white rounded-full w-10 h-10 shrink-0 disabled:opacity-40 mb-0.5">➤</button>
       </form>
+
+      {/* メンバー一覧（アイコンタップでプロフィールへ） */}
+      {members && (
+        <Modal title={`メンバー（${members.length}人）`} onClose={() => setMembers(null)}>
+          <div className="space-y-2">
+            {members.map((m) => (
+              <UserChip key={m.id} userId={m.id === user.id ? null : m.id} name={m.display_name} avatar={m.avatar} className="w-full">
+                <span className="text-sm truncate text-left">{m.display_name}{m.id === user.id && <span className="text-[10px] text-ink-soft ml-1">(自分)</span>}</span>
+              </UserChip>
+            ))}
+          </div>
+        </Modal>
+      )}
 
       {/* 送信確認（LINE風の送信前プレビュー） */}
       {pending && (
