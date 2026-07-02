@@ -64,6 +64,14 @@ function init(server, pgPool) {
           'SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [roomId, socket.userId]);
         if (!mem.rows.length) return cb && cb({ error: 'このトークにアクセスできません' });
 
+        // ブロック関係があるDMには送信できない（どちら向きのブロックでも遮断・サーバー側判定）
+        const blocked = await pool.query(
+          `SELECT 1 FROM chat_room_members crm
+             JOIN blocks b ON (b.blocker_id = $2 AND b.blocked_id = crm.user_id)
+                           OR (b.blocker_id = crm.user_id AND b.blocked_id = $2)
+           WHERE crm.room_id = $1 AND crm.user_id <> $2 LIMIT 1`, [roomId, socket.userId]);
+        if (blocked.rows.length) return cb && cb({ error: 'この相手にはメッセージを送れません' });
+
         const ins = await pool.query(
           `INSERT INTO chat_messages (room_id, sender_id, content, attachment_url, attachment_type, attachment_name)
            VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,

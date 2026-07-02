@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, updateStoredUser } from '../api'
 import { enablePush, pushPermission, isIOS, isStandalone } from '../pwa'
 import { readFileAsDataUrl } from '../util'
-import { Card, Avatar, Field, inputClass, PrimaryButton, GhostButton, SectionTitle, Toggle } from '../components/ui'
+import { Card, Avatar, OshiAvatar, Field, inputClass, PrimaryButton, GhostButton, SectionTitle, Toggle } from '../components/ui'
 
 // プロフィール（表示名・個人アイコン・自己紹介・公開設定）＋通知＋ログアウト
 // ※ 推しの着せ替え画像は「推し詳細ページ」で選ぶ機能。ここの個人アイコンとは別物。
@@ -16,7 +16,10 @@ export default function Profile({ user, onLogout, onUpdate }) {
   const [error, setError] = useState('')
   const [pushMsg, setPushMsg] = useState('')
   const [perm, setPerm] = useState(pushPermission())
+  const [myOshi, setMyOshi] = useState([])
   const nav = useNavigate()
+
+  useEffect(() => { api('/oshi').then(setMyOshi).catch(console.error) }, [])
 
   const handleFile = async (e) => {
     const file = e.target.files[0]
@@ -81,6 +84,24 @@ export default function Profile({ user, onLogout, onUpdate }) {
           {saved && <p className="text-[#5e7a5b] text-xs mb-2">保存しました ✓</p>}
           <PrimaryButton className="w-full">保存する</PrimaryButton>
         </form>
+      </Card>
+
+      {/* 登録している推し */}
+      <Card>
+        <SectionTitle>登録している推し</SectionTitle>
+        {myOshi.length === 0 ? (
+          <p className="text-[11px] text-ink-soft">まだ推しを登録していません。</p>
+        ) : (
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {myOshi.map((o) => (
+              <button key={o.id} onClick={() => o.oshi_master_id && nav(`/oshi/${o.oshi_master_id}`)}
+                className="flex flex-col items-center gap-1 shrink-0">
+                <OshiAvatar oshi={o} />
+                <span className="text-[11px] text-ink-soft max-w-14 truncate">{o.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* マイページのリンク */}

@@ -213,6 +213,25 @@ CREATE TABLE IF NOT EXISTS savings_transactions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ===== 第3弾で追加した新テーブル =====
+-- ブロック（判定は必ずサーバー側で行う）
+CREATE TABLE IF NOT EXISTS blocks (
+  id SERIAL PRIMARY KEY,
+  blocker_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  blocked_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (blocker_id, blocked_id)
+);
+
+-- トーク一覧のピン止め（ユーザーごと）
+CREATE TABLE IF NOT EXISTS pinned_chats (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  room_id INTEGER NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+  pinned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, room_id)
+);
+
 -- Web Push購読情報
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id SERIAL PRIMARY KEY,

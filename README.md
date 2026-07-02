@@ -58,7 +58,8 @@
 `oshi_images`(着せ替え審査) / `user_oshi_display_image`(推しの表示画像をユーザーごとに選択) /
 `friendships` / `chat_rooms` / `chat_room_members` /
 `chat_messages`(attachment_*) / `chat_message_reads`(既読) / `album_photos`(共有アルバム) /
-`events` / `event_participants`(savings_goal) / `savings_transactions`(貯金の入出金) / `push_subscriptions`
+`events` / `event_participants`(savings_goal) / `savings_transactions`(貯金の入出金) /
+`blocks`(ブロック) / `pinned_chats`(トークのピン止め) / `push_subscriptions`
 
 テーブルはサーバー起動時に自動作成・マイグレーションされます（`CREATE TABLE IF NOT EXISTS` ＋ `ALTER ... ADD COLUMN IF NOT EXISTS`）。
 
@@ -102,6 +103,7 @@ railway up --ci -s web   # リポジトリ直下で実行（Dockerfileでビル�
 - `DATABASE_URL = ${{Postgres.DATABASE_URL}}`（参照変数）
 - `TOKEN_SECRET`（トークン署名用）
 - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`（Web Push用）
+- `ANTHROPIC_API_KEY`（貯金サポートAI用・任意。未設定でもルールベースで動作）
 
 ## 🔔 通知（Web Push）の使い方
 
@@ -119,6 +121,19 @@ railway up --ci -s web   # リポジトリ直下で実行（Dockerfileでビル�
 - [ ] 通知の種類ごとのON/OFF設定
 
 ## 📜 更新履歴
+
+### 2026-07-02（第3弾：新機能6件）
+- **貯金サポートAI**：イベントの貯金画面からAIに相談できる（進捗に応じた助言・励まし）。
+  Anthropic APIの軽量モデル（Haiku系）を使用し、コンテキストには**貯金残高（入金−出金）**・目標額・残り日数を渡す
+  （参戦記録の合計は使わない）。1ユーザー1日10回まで。**APIキーはサーバー側の環境変数 `ANTHROPIC_API_KEY` のみで管理**し
+  フロントには露出しない。キー未設定でもルールベースの助言にフォールバックして動作
+- **ログインのアカウントクイック選択**：この端末で過去にログインしたアカウントをタップで選択（IDだけ自動入力、
+  **パスワードは保存・自動入力しない**）。履歴は端末のlocalStorageのみ。「別のアカウントでログイン」導線あり
+- **プロフィールに登録推し一覧**：自分・他ユーザーのプロフィールに登録中の推しを表示（非公開ユーザーは推し友以外に非表示）
+- **つぶやきから他ユーザーのプロフィールへ**：投稿者のアイコン/名前をタップで `/users/:id` へ遷移し、その場で推し友申請できる
+- **ブロック機能**：`blocks` テーブル。ブロックすると申請・DM遮断、つぶやき相互非表示、おすすめ除外、既存の推し友関係は自動解除
+  （判定はすべてサーバー側）。プロフィール画面から操作
+- **トーク一覧のピン止め**：`pinned_chats` テーブル。ピンしたトークを一覧の最上部にまとめて表示
 
 ### 2026-07-02（第2弾修正：着せ替え・貯金の仕様訂正＋全画面ローディング）
 - **推しの着せ替え（仕様訂正）**: 承認済み画像が誤って「個人のプロフィールアイコン」になっていたのを修正。

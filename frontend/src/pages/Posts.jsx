@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { formatTime, VISIBILITIES, VISIBILITY_MAP } from '../util'
@@ -16,6 +17,7 @@ export default function Posts({ /* user */ }) {
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
+  const nav = useNavigate()
 
   const reload = () => api('/posts').then(setList).catch(console.error).finally(() => setLoading(false))
   useEffect(() => {
@@ -106,11 +108,13 @@ export default function Posts({ /* user */ }) {
         return (
           <Card key={p.id}>
             <div className="flex items-center gap-2">
-              <Avatar image={p.author_avatar} name={p.author_name} size="w-8 h-8" textSize="text-sm" />
-              <div className="min-w-0">
-                <p className="text-sm font-bold truncate">{p.author_name}</p>
-                <p className="text-[10px] text-ink-soft">{formatTime(p.created_at)}</p>
-              </div>
+              <button onClick={() => nav(`/users/${p.user_id}`)} className="flex items-center gap-2 min-w-0">
+                <Avatar image={p.author_avatar} name={p.author_name} size="w-8 h-8" textSize="text-sm" />
+                <div className="min-w-0 text-left">
+                  <p className="text-sm font-bold truncate">{p.author_name}</p>
+                  <p className="text-[10px] text-ink-soft">{formatTime(p.created_at)}</p>
+                </div>
+              </button>
               <div className="ml-auto flex items-center gap-1">
                 <span className="text-[10px] bg-paper text-ink-soft rounded-full px-2 py-0.5">{v?.icon} {v?.label}</span>
                 <button onClick={() => remove(p)} className="text-ink-soft/50 text-base px-1">×</button>
