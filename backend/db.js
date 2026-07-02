@@ -189,6 +189,30 @@ CREATE TABLE IF NOT EXISTS chat_message_reads (
   UNIQUE (message_id, user_id)
 );
 
+-- ===== 第2弾修正で追加した新テーブル =====
+-- 推しの着せ替え：ユーザーごとに、その推しの表示画像として選んだ承認済み画像。
+-- 「ユーザー個人のプロフィールアイコン」とは完全に別物。未選択なら oshi_master.image_url を表示。
+CREATE TABLE IF NOT EXISTS user_oshi_display_image (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  oshi_master_id INTEGER NOT NULL REFERENCES oshi_master(id) ON DELETE CASCADE,
+  oshi_image_id INTEGER REFERENCES oshi_images(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, oshi_master_id)
+);
+
+-- 貯金の入出金記録（参戦記録＝支出とは完全に別管理）。
+-- 貯金残高 = deposit(入金)合計 − withdrawal(出金)合計 で算出する。
+CREATE TABLE IF NOT EXISTS savings_transactions (
+  id SERIAL PRIMARY KEY,
+  event_participant_id INTEGER NOT NULL REFERENCES event_participants(id) ON DELETE CASCADE,
+  amount INTEGER NOT NULL,
+  type TEXT NOT NULL, -- 'deposit'（貯金する） / 'withdrawal'（引き出す）
+  memo TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Web Push購読情報
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id SERIAL PRIMARY KEY,

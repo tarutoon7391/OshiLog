@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { OSHI_GENRES, OSHI_COLORS } from '../util'
-import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty } from '../components/ui'
+import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty, Loading } from '../components/ui'
 
 const emptyForm = { name: '', genre: 'アイドル', color: '#8b3a4a', image: '' }
 
@@ -14,10 +14,11 @@ export default function OshiBrowse() {
   const [openGenre, setOpenGenre] = useState('アイドル')
   const [form, setForm] = useState(null)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
   const nav = useNavigate()
 
   const reload = () => {
-    api('/oshi/browse').then(setMasters).catch(console.error)
+    api('/oshi/browse').then(setMasters).catch(console.error).finally(() => setLoading(false))
     api('/oshi').then(setMyOshi).catch(console.error)
   }
   useEffect(() => { reload() }, [])
@@ -57,7 +58,8 @@ export default function OshiBrowse() {
         <PrimaryButton onClick={() => setForm({ ...emptyForm })}>＋ 登録</PrimaryButton>
       </div>
 
-      {masters.length === 0 && (
+      {loading && <Loading label="推しを読み込み中…" />}
+      {!loading && masters.length === 0 && (
         <Card><Empty icon="⭐" message={'まだ誰も推しを登録していません。\n最初の登録者になりましょう！'} /></Card>
       )}
 
@@ -82,9 +84,9 @@ export default function OshiBrowse() {
                 {list.map((m, i) => (
                   <div key={m.id} className="polaroid rounded-sm" style={{ transform: `rotate(${i % 2 ? 1.3 : -1.3}deg)` }}>
                     <button onClick={() => nav(`/oshi/${m.id}`)} className="aspect-square w-full rounded-sm overflow-hidden flex items-center justify-center"
-                      style={{ backgroundColor: m.image_url ? '#fff' : '#e8dfce' }}>
-                      {m.image_url
-                        ? <img src={m.image_url} alt={m.name} className="w-full h-full object-cover" />
+                      style={{ backgroundColor: m.display_image ? '#fff' : '#e8dfce' }}>
+                      {m.display_image
+                        ? <img src={m.display_image} alt={m.name} className="w-full h-full object-cover" />
                         : <span className="text-4xl text-wine/40 font-black">{m.name.slice(0, 1)}</span>}
                     </button>
                     <div className="px-1 pt-1.5">

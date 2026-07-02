@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, updateStoredUser } from '../api'
 import { enablePush, pushPermission, isIOS, isStandalone } from '../pwa'
 import { readFileAsDataUrl } from '../util'
 import { Card, Avatar, Field, inputClass, PrimaryButton, GhostButton, SectionTitle, Toggle } from '../components/ui'
 
-// プロフィール（表示名・アイコン・自己紹介・公開設定）＋着せ替え＋通知＋ログアウト
+// プロフィール（表示名・個人アイコン・自己紹介・公開設定）＋通知＋ログアウト
+// ※ 推しの着せ替え画像は「推し詳細ページ」で選ぶ機能。ここの個人アイコンとは別物。
 export default function Profile({ user, onLogout, onUpdate }) {
   const [displayName, setDisplayName] = useState(user.display_name || '')
   const [bio, setBio] = useState(user.bio || '')
@@ -15,19 +16,7 @@ export default function Profile({ user, onLogout, onUpdate }) {
   const [error, setError] = useState('')
   const [pushMsg, setPushMsg] = useState('')
   const [perm, setPerm] = useState(pushPermission())
-  // 着せ替えギャラリー
-  const [myOshi, setMyOshi] = useState([])
-  const [galleryOshi, setGalleryOshi] = useState(null) // 表示中のマスターID
-  const [gallery, setGallery] = useState([])
   const nav = useNavigate()
-
-  useEffect(() => { api('/oshi').then(setMyOshi).catch(console.error) }, [])
-
-  const openGallery = async (masterId) => {
-    setGalleryOshi(masterId)
-    try { setGallery(await api(`/oshi/master/${masterId}/gallery`)) }
-    catch { setGallery([]) }
-  }
 
   const handleFile = async (e) => {
     const file = e.target.files[0]
@@ -92,39 +81,6 @@ export default function Profile({ user, onLogout, onUpdate }) {
           {saved && <p className="text-[#5e7a5b] text-xs mb-2">保存しました ✓</p>}
           <PrimaryButton className="w-full">保存する</PrimaryButton>
         </form>
-      </Card>
-
-      {/* 着せ替え：推しの公式承認ギャラリーからアイコンを選ぶ */}
-      <Card>
-        <SectionTitle>推しで着せ替え</SectionTitle>
-        <p className="text-[11px] text-ink-soft mb-2">登録している推しの、管理者承認済み画像をアイコンにできます。</p>
-        {myOshi.length === 0 ? (
-          <p className="text-[11px] text-ink-soft">推しを登録すると使えます。</p>
-        ) : (
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {myOshi.map((o) => (
-              <button key={o.id} type="button" onClick={() => openGallery(o.oshi_master_id)}
-                className={`text-xs rounded-full px-3 py-1.5 border shrink-0 ${galleryOshi === o.oshi_master_id ? 'bg-wine text-white border-wine' : 'border-paper-line text-ink-soft'}`}>
-                {o.name}
-              </button>
-            ))}
-          </div>
-        )}
-        {galleryOshi && (
-          gallery.length === 0 ? (
-            <p className="text-[11px] text-ink-soft mt-2">この推しの承認済み画像はまだありません。推し詳細から画像を申請できます。</p>
-          ) : (
-            <div className="grid grid-cols-4 gap-1.5 mt-2">
-              {gallery.map((g) => (
-                <button key={g.id} type="button" onClick={() => { setAvatar(g.image_url); setSaved(false) }}
-                  className={`aspect-square rounded-lg overflow-hidden border-2 ${avatar === g.image_url ? 'border-wine' : 'border-paper-line/60'}`}>
-                  <img src={g.image_url} alt="" className="w-full h-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )
-        )}
-        <p className="text-[10px] text-ink-soft mt-2">選んだあと「保存する」で確定します。</p>
       </Card>
 
       {/* マイページのリンク */}

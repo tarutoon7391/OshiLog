@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { formatTime, VISIBILITIES, VISIBILITY_MAP } from '../util'
-import { Card, Avatar, OshiSelect, PrimaryButton, Empty, inputClass } from '../components/ui'
+import { Card, Avatar, OshiSelect, PrimaryButton, Empty, inputClass, Loading } from '../components/ui'
 
 // つぶやき：公開範囲つき投稿＋Socket.ioでリアルタイム反映
 export default function Posts({ /* user */ }) {
@@ -15,8 +15,9 @@ export default function Posts({ /* user */ }) {
   const [eventId, setEventId] = useState(null)
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
+  const [loading, setLoading] = useState(true)
 
-  const reload = () => api('/posts').then(setList).catch(console.error)
+  const reload = () => api('/posts').then(setList).catch(console.error).finally(() => setLoading(false))
   useEffect(() => {
     reload()
     api('/oshi').then(setOshiList).catch(console.error)
@@ -97,7 +98,8 @@ export default function Posts({ /* user */ }) {
       </Card>
 
       {/* タイムライン */}
-      {list.length === 0 && <Card><Empty icon="✍️" message={'まだつぶやきがありません。\n推しへの想いを残しましょう！'} /></Card>}
+      {loading && <Loading label="つぶやきを読み込み中…" />}
+      {!loading && list.length === 0 && <Card><Empty icon="✍️" message={'まだつぶやきがありません。\n推しへの想いを残しましょう！'} /></Card>}
 
       {list.map((p) => {
         const v = VISIBILITY_MAP[p.visibility]

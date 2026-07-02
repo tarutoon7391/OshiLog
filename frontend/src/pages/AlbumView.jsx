@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { readFileAsDataUrl } from '../util'
-import { Empty } from '../components/ui'
+import { Empty, Loading } from '../components/ui'
 
 // チャットルーム単位の共有アルバム（メンバー全員が閲覧・追加できる。グリッド表示）
 export default function AlbumView({ user }) {
@@ -13,11 +13,12 @@ export default function AlbumView({ user }) {
   const [photos, setPhotos] = useState([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [viewer, setViewer] = useState(null)
   const fileRef = useRef(null)
 
   useEffect(() => {
-    api(`/chat/rooms/${rid}/album`).then(setPhotos).catch((e) => setError(e.message))
+    api(`/chat/rooms/${rid}/album`).then(setPhotos).catch((e) => setError(e.message)).finally(() => setLoading(false))
     const s = getSocket()
     if (s) {
       const onNew = (d) => { if (d.roomId === rid) setPhotos((prev) => prev.some((p) => p.id === d.photo.id) ? prev : [d.photo, ...prev]) }
@@ -62,7 +63,9 @@ export default function AlbumView({ user }) {
       <p className="text-[11px] text-ink-soft">このトークのメンバーみんなで見られるアルバムです。</p>
       {error && <p className="text-wine text-xs">{error}</p>}
 
-      {photos.length === 0 ? (
+      {loading ? (
+        <Loading label="アルバムを読み込み中…" />
+      ) : photos.length === 0 ? (
         <Empty icon="📸" message={'まだ写真がありません。\nライブや遠征の思い出を残しましょう！'} />
       ) : (
         <div className="grid grid-cols-3 gap-1.5">

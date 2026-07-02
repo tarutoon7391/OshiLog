@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { formatTime } from '../util'
-import { Card, Avatar, PrimaryButton, GhostButton, Empty, SectionTitle } from '../components/ui'
+import { Card, Avatar, PrimaryButton, GhostButton, Empty, SectionTitle, Loading } from '../components/ui'
 
 // 推し友：おすすめマッチング・申請・推し友一覧（トークへの入口）＋チャット一覧
 export default function Friends() {
@@ -13,13 +13,16 @@ export default function Friends() {
   const [requests, setRequests] = useState([])
   const [rooms, setRooms] = useState([])
   const [busy, setBusy] = useState(null)
+  const [loading, setLoading] = useState(true)
   const nav = useNavigate()
 
   const reload = () => {
-    api('/friends').then(setFriends).catch(console.error)
-    api('/friends/recommendations').then(setRecos).catch(console.error)
-    api('/friends/requests').then(setRequests).catch(console.error)
-    api('/chat/rooms').then(setRooms).catch(console.error)
+    Promise.allSettled([
+      api('/friends').then(setFriends),
+      api('/friends/recommendations').then(setRecos),
+      api('/friends/requests').then(setRequests),
+      api('/chat/rooms').then(setRooms),
+    ]).finally(() => setLoading(false))
   }
   useEffect(() => {
     reload()
@@ -68,10 +71,12 @@ export default function Friends() {
         <TabBtn id="chats" label="トーク" badge={rooms.reduce((n, r) => n + (r.unread_count || 0), 0)} />
       </div>
 
+      {loading && <Loading label="読み込み中…" />}
+
       {/* 推し友一覧 */}
       {tab === 'friends' && (
         <>
-          {friends.length === 0 && <Card><Empty icon="👥" message={'まだ推し友がいません。\n「さがす」から同じ推しの人を見つけましょう！'} /></Card>}
+          {!loading && friends.length === 0 && <Card><Empty icon="👥" message={'まだ推し友がいません。\n「さがす」から同じ推しの人を見つけましょう！'} /></Card>}
           {friends.map((f) => (
             <Card key={f.id} className="flex items-center gap-3">
               <Avatar image={f.avatar} name={f.display_name} />
@@ -86,7 +91,7 @@ export default function Friends() {
       {tab === 'discover' && (
         <>
           <SectionTitle>同じ推しの人をおすすめ</SectionTitle>
-          {recos.length === 0 && <Card><Empty icon="🔍" message={'おすすめが見つかりませんでした。\n推しを登録すると同担の人が表示されます。'} /></Card>}
+          {!loading && recos.length === 0 && <Card><Empty icon="🔍" message={'おすすめが見つかりませんでした。\n推しを登録すると同担の人が表示されます。'} /></Card>}
           {recos.map((u) => (
             <Card key={u.id} className="flex items-center gap-3">
               <Avatar image={u.avatar} name={u.display_name} />
@@ -105,7 +110,7 @@ export default function Friends() {
       {/* 受け取った申請 */}
       {tab === 'requests' && (
         <>
-          {requests.length === 0 && <Card><Empty icon="📨" message="届いている申請はありません" /></Card>}
+          {!loading && requests.length === 0 && <Card><Empty icon="📨" message="届いている申請はありません" /></Card>}
           {requests.map((f) => (
             <Card key={f.friendship_id} className="flex items-center gap-3">
               <Avatar image={f.avatar} name={f.display_name} />
@@ -120,7 +125,7 @@ export default function Friends() {
       {/* トーク一覧（DM・イベント） */}
       {tab === 'chats' && (
         <>
-          {rooms.length === 0 && <Card><Empty icon="💬" message={'トークがありません。\n推し友になるか、イベントに参加すると始まります。'} /></Card>}
+          {!loading && rooms.length === 0 && <Card><Empty icon="💬" message={'トークがありません。\n推し友になるか、イベントに参加すると始まります。'} /></Card>}
           {rooms.map((r) => (
             <button key={r.id} onClick={() => nav(`/chat/${r.id}`)}
               className="w-full text-left">

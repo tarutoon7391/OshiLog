@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { GOODS_CATEGORIES, formatYen } from '../util'
-import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty } from '../components/ui'
+import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty, Loading } from '../components/ui'
 
 const emptyForm = { name: '', category: 'アクスタ', price: '', oshi_id: null, image: '', memo: '' }
 
@@ -12,8 +12,9 @@ export default function Goods() {
   const [filter, setFilter] = useState('すべて')
   const [form, setForm] = useState(null)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
 
-  const reload = () => api('/goods').then(setList).catch(console.error)
+  const reload = () => api('/goods').then(setList).catch(console.error).finally(() => setLoading(false))
   useEffect(() => { reload(); api('/oshi').then(setOshiList).catch(console.error) }, [])
 
   const handleFile = (e) => {
@@ -51,7 +52,8 @@ export default function Goods() {
         ))}
       </div>
 
-      {filtered.length === 0 && <Card><Empty icon="🎁" message={'グッズがまだありません。\nアクスタやCDを登録してコレクションを作りましょう！'} /></Card>}
+      {loading && <Loading label="グッズを読み込み中…" />}
+      {!loading && filtered.length === 0 && <Card><Empty icon="🎁" message={'グッズがまだありません。\nアクスタやCDを登録してコレクションを作りましょう！'} /></Card>}
 
       <div className="grid grid-cols-2 gap-3">
         {filtered.map((g) => (

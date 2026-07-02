@@ -2,16 +2,17 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { daysUntil, formatDateJa, formatYen, currentMonth, EVENT_ICONS } from '../util'
-import { Card, OshiAvatar, Empty, SectionTitle } from '../components/ui'
+import { Card, OshiAvatar, Empty, SectionTitle, Loading } from '../components/ui'
 
 // トップ画面：次のイベントまでのカウントダウン＋今月のサマリー
 export default function Home({ user }) {
   const [schedules, setSchedules] = useState([])
   const [oshiList, setOshiList] = useState([])
   const [stats, setStats] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api('/schedules').then(setSchedules).catch(console.error)
+    api('/schedules').then(setSchedules).catch(console.error).finally(() => setLoading(false))
     api('/oshi').then(setOshiList).catch(console.error)
     api('/stats/summary').then(setStats).catch(console.error)
   }, [])
@@ -25,7 +26,9 @@ export default function Home({ user }) {
       <p className="text-sm text-ink-soft">こんにちは、<span className="font-bold text-ink">{user.display_name || user.username}</span> さん</p>
 
       {/* 今後の予定をすべて上部にまとめて表示（一番直近だけワインレッドで強調） */}
-      {next ? (
+      {loading ? (
+        <Card><Loading label="読み込み中…" /></Card>
+      ) : next ? (
         <div className="space-y-2">
           <div className="rounded-3xl bg-wine text-white p-5 shadow-lg relative overflow-hidden">
             <p className="text-xs opacity-80">{EVENT_ICONS[next.event_type] || '📌'} いちばん近い予定</p>

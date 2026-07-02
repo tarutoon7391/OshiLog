@@ -17,8 +17,10 @@ export function Avatar({ image, name, color = '#8b3a4a', size = 'w-12 h-12', tex
 }
 
 // 推し用アイコン（oshiオブジェクトから）
+// 表示画像は「そのユーザーが選んだ着せ替え画像（display_image）」を最優先。
+// ※ ユーザー個人のプロフィールアイコン（users.avatar）とは別物。
 export function OshiAvatar({ oshi, size = 'w-12 h-12', textSize = 'text-lg' }) {
-  return <Avatar image={oshi?.image || oshi?.master_image} name={oshi?.name} color={oshi?.color} size={size} textSize={textSize} />
+  return <Avatar image={oshi?.display_image || oshi?.image || oshi?.master_image} name={oshi?.name} color={oshi?.color} size={size} textSize={textSize} />
 }
 
 // 紙のカード
@@ -98,6 +100,16 @@ export function Empty({ icon, message }) {
     <div className="text-center text-ink-soft py-10">
       <div className="text-4xl mb-2 opacity-70">{icon}</div>
       <p className="text-sm whitespace-pre-line">{message}</p>
+    </div>
+  )
+}
+
+// 読み込み中の共通表示（紙の手帳トーン。スタンプがトンと押される演出）
+export function Loading({ label = '読み込み中…', className = '' }) {
+  return (
+    <div className={`flex flex-col items-center justify-center py-14 text-ink-soft ${className}`}>
+      <div className="stamp-loading text-4xl leading-none">💗</div>
+      <p className="text-xs mt-3 tracking-wide">{label}</p>
     </div>
   )
 }
