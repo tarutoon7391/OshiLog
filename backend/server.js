@@ -9,6 +9,16 @@ const push = require('./push');
 const realtime = require('./realtime');
 const ai = require('./ai');
 
+// プロセス全体の保険：想定外の非同期エラーでアプリ全体が落ちるのを防ぐ（本番の可用性を優先）。
+// 通知送信のfire-and-forgetやSocket処理など、リクエストのtry/catch外で起きた例外もここで受け止め、
+// ログだけ残してプロセスは生かし続ける。
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ 未処理のPromise拒否（プロセスは継続）:', reason && reason.stack ? reason.stack : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ 未捕捉の例外（プロセスは継続）:', err && err.stack ? err.stack : err);
+});
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
