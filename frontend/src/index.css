@@ -1,6 +1,58 @@
 @import "tailwindcss";
 
+/* 紙の推し活手帳カラーパレット（蛍光色・ネオンは使わない） */
+@theme {
+  --color-paper: #e8dfce;        /* 背景ベージュ */
+  --color-paper-card: #fbf7ee;   /* カード（紙）色 */
+  --color-paper-line: #d8cbb0;   /* 罫線色 */
+  --color-wine: #8b3a4a;         /* アクセント（ワインレッド） */
+  --color-wine-dark: #6e2c39;
+  --color-ink: #3a2e2a;          /* 文字（濃い茶） */
+  --color-ink-soft: #8a7a6b;     /* 補助文字 */
+  --color-tag: #c8b7a0;          /* タグ・枠 */
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+/* ページ全体（body）はスクロールさせない＝固定ビューポート */
 body {
-  font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "BIZ UDPGothic", Meiryo, sans-serif;
-  background-color: #fdf2f8;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-family: "Hiragino Maru Gothic ProN", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Yu Gothic", Meiryo, sans-serif;
+  background-color: var(--color-paper);
+  /* うっすら罫線が入った手帳風の背景 */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 31px,
+    rgba(139, 58, 74, 0.06) 31px,
+    rgba(139, 58, 74, 0.06) 32px
+  );
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* スクロール領域のスクロールバーを控えめに */
+.scroll-area {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-tag) transparent;
+}
+.scroll-area::-webkit-scrollbar { width: 6px; }
+.scroll-area::-webkit-scrollbar-thumb { background: var(--color-tag); border-radius: 3px; }
+
+/* ポラロイド風フレーム（推しタイル用） */
+.polaroid {
+  background: #fffdf8;
+  padding: 6px 6px 26px 6px;
+  box-shadow: 0 2px 6px rgba(58, 46, 42, 0.18);
+  border: 1px solid #efe7d6;
+}
+
+/* スタンプ風の丸囲み（カレンダーの選択日） */
+.stamp-ring {
+  box-shadow: 0 0 0 2px var(--color-wine);
+  border-radius: 9999px;
 }

@@ -1,57 +1,56 @@
-// 画面共通で使う定数・関数
+// 画面共通の定数・関数
 
-export const OSHI_CATEGORIES = ['アイドル', '声優', 'アーティスト', 'VTuber', '俳優', 'キャラクター', 'その他']
+export const OSHI_GENRES = ['アイドル', '声優', 'VTuber', 'アーティスト', 'スポーツ選手', 'その他']
 
-// 推しカラーのプリセット
-export const OSHI_COLORS = ['#ec4899', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6']
+// 推しカラー（手帳になじむ落ち着いた色。蛍光色は使わない）
+export const OSHI_COLORS = ['#8b3a4a', '#a86b4c', '#c99a3f', '#5e7a5b', '#4a6d7c', '#6b5b7b', '#a75265', '#77694f']
 
 export const EVENT_TYPES = ['ライブ', '配信', 'イベント', 'グッズ発売', '誕生日', 'その他']
 
 export const EVENT_ICONS = {
-  'ライブ': '🎤',
-  '配信': '📱',
-  'イベント': '🎪',
-  'グッズ発売': '🛍️',
-  '誕生日': '🎂',
-  'その他': '📌',
+  'ライブ': '🎤', '配信': '📱', 'イベント': '🎪',
+  'グッズ発売': '🛍️', '誕生日': '🎂', 'その他': '📌',
 }
 
 export const GOODS_CATEGORIES = ['アクスタ', 'CD・DVD', 'Tシャツ', 'タオル', 'ペンライト', '缶バッジ', 'ぬいぐるみ', 'その他']
 
-// 'YYYY-MM-DD' までの残り日数（今日なら0、過去ならマイナス）
+// つぶやきの公開範囲
+export const VISIBILITIES = [
+  { key: 'private', label: 'プライベート', icon: '🔒', hint: '自分だけ' },
+  { key: 'public_all', label: '全体に公開', icon: '🌏', hint: '全ユーザー' },
+  { key: 'public_same_oshi', label: '同じ推しの人', icon: '💗', hint: '同じ推しを登録している人' },
+  { key: 'public_same_event', label: '同じイベント参加者', icon: '🎪', hint: '同じイベントに参加した人' },
+]
+export const VISIBILITY_MAP = Object.fromEntries(VISIBILITIES.map((v) => [v.key, v]))
+
 export function daysUntil(dateStr) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
   const target = new Date(dateStr + 'T00:00:00')
   return Math.round((target - today) / 86400000)
 }
 
-// 今日の日付を 'YYYY-MM-DD' で返す（フォームの初期値用）
 export function todayStr() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-// 今月を 'YYYY-MM' で返す
-export function currentMonth() {
-  return todayStr().slice(0, 7)
-}
+export function currentMonth() { return todayStr().slice(0, 7) }
 
-// 'YYYY-MM-DD' → '2026年7月2日(木)' 形式
 export function formatDateJa(dateStr) {
   const d = new Date(dateStr + 'T00:00:00')
   const week = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()]
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日(${week})`
 }
 
-// 金額を '12,345円' 形式に
-export function formatYen(n) {
-  return `${new Intl.NumberFormat('ja-JP').format(n || 0)}円`
-}
+export function formatYen(n) { return `${new Intl.NumberFormat('ja-JP').format(n || 0)}円` }
 
-// 'YYYY-MM' を前後に動かす（集計画面の月送り用）
 export function shiftMonth(month, diff) {
   const [y, m] = month.split('-').map(Number)
   const d = new Date(y, m - 1 + diff, 1)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+// 日時を '7/2 18:30' 形式に
+export function formatTime(iso) {
+  return new Date(iso).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
