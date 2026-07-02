@@ -56,6 +56,13 @@ const admin = (req, res, next) => {
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
+// Google Maps 用のクライアント設定。APIキーはサーバーの環境変数のみで管理し、
+// フロントのソースには直書きしない（この経路で実行時に受け渡す）。未設定なら enabled:false。
+app.get('/api/maps/config', auth, (req, res) => {
+  const key = process.env.GOOGLE_MAPS_API_KEY || '';
+  res.json({ enabled: !!key, apiKey: key });
+});
+
 // =========================================================
 // 認証・ユーザー
 // =========================================================
@@ -722,6 +729,9 @@ app.delete('/api/chat/rooms/:id/album/:photoId', auth, wrap(async (req, res) => 
 app.get('/api/events', auth, wrap(async (req, res) => {
   const r = await pool.query(
     `SELECT e.*, m.name AS artist_name,
+            v.name AS venue_name, v.address AS venue_address,
+            v.latitude AS venue_lat, v.longitude AS venue_lng,
+            v.nearest_station AS venue_station, v.fare_note AS venue_fare_note,
             (SELECT COUNT(*)::int FROM event_participants ep WHERE ep.event_id = e.id) AS participant_count,
             EXISTS (SELECT 1 FROM event_participants ep WHERE ep.event_id = e.id AND ep.user_id = $1) AS joined,
             (SELECT savings_goal FROM event_participants ep WHERE ep.event_id = e.id AND ep.user_id = $1) AS savings_goal,
@@ -730,7 +740,9 @@ app.get('/api/events', auth, wrap(async (req, res) => {
                       JOIN event_participants ep2 ON ep2.id = st.event_participant_id
                       WHERE ep2.event_id = e.id AND ep2.user_id = $1), 0) AS saved_amount,
             (SELECT id FROM chat_rooms cr WHERE cr.type = 'event' AND cr.event_id = e.id LIMIT 1) AS room_id
-     FROM events e LEFT JOIN oshi_master m ON m.id = e.artist_id
+     FROM events e
+     LEFT JOIN oshi_master m ON m.id = e.artist_id
+     LEFT JOIN venues v ON v.id = e.venue_id
      ORDER BY e.event_date`, [req.userId]);
   res.json(r.rows);
 }));
@@ -839,23 +851,70 @@ app.get('/api/events/:id/mylog', auth, wrap(async (req, res) => {
 }));
 
 app.post('/api/events', auth, admin, wrap(async (req, res) => {
-  const { name, artist_id, event_date, location, description, image } = req.body;
+  const { name, artist_id, event_date, location, description, image, venue_id } = req.body;
   if (!name || !event_date) return res.status(400).json({ error: 'イベント名と日付は必須です' });
   const r = await pool.query(
-    `INSERT INTO events (name, artist_id, event_date, location, description, image, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [name, artist_id || null, event_date, location || null, description || null, image || null, req.userId]);
+    `INSERT INTO events (name, artist_id, event_date, location, description, image, venue_id, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [name, artist_id || null, event_date, location || null, description || null, image || null, venue_id || null, req.userId]);
   res.status(201).json(r.rows[0]);
 }));
 
 app.put('/api/events/:id', auth, admin, wrap(async (req, res) => {
-  const { name, artist_id, event_date, location, description, image } = req.body;
+  const { name, artist_id, event_date, location, description, image, venue_id } = req.body;
   const r = await pool.query(
-    `UPDATE events SET name = $1, artist_id = $2, event_date = $3, location = $4, description = $5, image = $6
-     WHERE id = $7 RETURNING *`,
-    [name, artist_id || null, event_date, location || null, description || null, image || null, req.params.id]);
+    `UPDATE events SET name = $1, artist_id = $2, event_date = $3, location = $4, description = $5, image = $6, venue_id = $7
+     WHERE id = $8 RETURNING *`,
+    [name, artist_id || null, event_date, location || null, description || null, image || null, venue_id || null, req.params.id]);
   if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
   res.json(r.rows[0]);
+}));
+
+// 会場→最寄り駅の公共交通ルート（Google Routes API, travelMode: TRANSIT）。
+// 運賃は日本の鉄道でGoogle側の精度が不安定なため自動取得しない（fare_note＝管理者の任意メモを別途表示）。
+// APIキー未設定・最寄り駅未入力・会場未設定などの場合は enabled:false を返して画面側で非表示にする。
+app.get('/api/events/:id/route', auth, wrap(async (req, res) => {
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  const q = await pool.query(
+    `SELECT v.latitude, v.longitude, v.nearest_station
+     FROM events e JOIN venues v ON v.id = e.venue_id WHERE e.id = $1`, [req.params.id]);
+  if (!q.rows.length) return res.json({ enabled: false, reason: 'no_venue' });
+  const v = q.rows[0];
+  if (!v.nearest_station) return res.json({ enabled: false, reason: 'no_station' });
+  if (!key) return res.json({ enabled: false, reason: 'no_key' });
+  try {
+    const body = {
+      origin: { location: { latLng: { latitude: v.latitude, longitude: v.longitude } } },
+      destination: { address: v.nearest_station },
+      travelMode: 'TRANSIT',
+      languageCode: 'ja-JP',
+    };
+    const r = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': key,
+        'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      console.error('Routes APIエラー:', r.status, await r.text());
+      return res.json({ enabled: false, reason: 'api_error' });
+    }
+    const data = await r.json();
+    const route = data.routes && data.routes[0];
+    if (!route) return res.json({ enabled: true, found: false, station: v.nearest_station });
+    const seconds = route.duration ? parseInt(route.duration, 10) : null; // 例 "600s"
+    res.json({
+      enabled: true, found: true, station: v.nearest_station,
+      duration_min: Number.isFinite(seconds) ? Math.round(seconds / 60) : null,
+      distance_m: route.distanceMeters || null,
+    });
+  } catch (err) {
+    console.error(err);
+    res.json({ enabled: false, reason: 'exception' });
+  }
 }));
 
 app.delete('/api/events/:id', auth, admin, wrap(async (req, res) => {
@@ -909,11 +968,70 @@ app.post('/api/events/:id/leave', auth, wrap(async (req, res) => {
 // =========================================================
 app.get('/api/admin/events', auth, admin, wrap(async (req, res) => {
   const r = await pool.query(
-    `SELECT e.*, m.name AS artist_name,
+    `SELECT e.*, m.name AS artist_name, v.name AS venue_name,
             (SELECT COUNT(*)::int FROM event_participants ep WHERE ep.event_id = e.id) AS participant_count
-     FROM events e LEFT JOIN oshi_master m ON m.id = e.artist_id
+     FROM events e
+     LEFT JOIN oshi_master m ON m.id = e.artist_id
+     LEFT JOIN venues v ON v.id = e.venue_id
      ORDER BY e.event_date`);
   res.json(r.rows);
+}));
+
+// =========================================================
+// 会場（venue）マスター：登録・編集・削除は管理者のみ（判定はサーバー側）
+// =========================================================
+// 会場登録・編集フォームの入力を検証して正規化する。最寄り駅・運賃メモは任意。
+function parseVenueBody(body) {
+  const name = (body.name || '').trim();
+  const address = (body.address || '').trim();
+  const latitude = Number(body.latitude);
+  const longitude = Number(body.longitude);
+  const nearest = body.nearest_station && String(body.nearest_station).trim() ? String(body.nearest_station).trim() : null;
+  const fare = body.fare_note && String(body.fare_note).trim() ? String(body.fare_note).trim() : null;
+  return { name, address, latitude, longitude, nearest, fare };
+}
+function validVenue(v) {
+  if (!v.name || !v.address) return 'venue_name_address';
+  if (!Number.isFinite(v.latitude) || !Number.isFinite(v.longitude)) return 'venue_latlng';
+  if (v.latitude < -90 || v.latitude > 90 || v.longitude < -180 || v.longitude > 180) return 'venue_latlng';
+  return null;
+}
+
+app.get('/api/admin/venues', auth, admin, wrap(async (req, res) => {
+  const r = await pool.query(
+    `SELECT v.*, (SELECT COUNT(*)::int FROM events e WHERE e.venue_id = v.id) AS event_count
+     FROM venues v ORDER BY v.id DESC`);
+  res.json(r.rows);
+}));
+
+app.post('/api/admin/venues', auth, admin, wrap(async (req, res) => {
+  const v = parseVenueBody(req.body);
+  const err = validVenue(v);
+  if (err === 'venue_name_address') return res.status(400).json({ error: '会場名と住所は必須です' });
+  if (err === 'venue_latlng') return res.status(400).json({ error: '緯度・経度を正しく入力してください' });
+  const r = await pool.query(
+    `INSERT INTO venues (name, address, latitude, longitude, nearest_station, fare_note, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [v.name, v.address, v.latitude, v.longitude, v.nearest, v.fare, req.userId]);
+  res.status(201).json(r.rows[0]);
+}));
+
+app.put('/api/admin/venues/:id', auth, admin, wrap(async (req, res) => {
+  const v = parseVenueBody(req.body);
+  const err = validVenue(v);
+  if (err === 'venue_name_address') return res.status(400).json({ error: '会場名と住所は必須です' });
+  if (err === 'venue_latlng') return res.status(400).json({ error: '緯度・経度を正しく入力してください' });
+  const r = await pool.query(
+    `UPDATE venues SET name = $1, address = $2, latitude = $3, longitude = $4, nearest_station = $5, fare_note = $6
+     WHERE id = $7 RETURNING *`,
+    [v.name, v.address, v.latitude, v.longitude, v.nearest, v.fare, req.params.id]);
+  if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
+  res.json(r.rows[0]);
+}));
+
+app.delete('/api/admin/venues/:id', auth, admin, wrap(async (req, res) => {
+  await pool.query('DELETE FROM venues WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
 }));
 
 // =========================================================

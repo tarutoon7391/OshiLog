@@ -4,28 +4,32 @@ import { api } from '../api'
 import { readFileAsDataUrl, formatDateJa } from '../util'
 import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty, Loading } from '../components/ui'
 
-const emptyEvent = { name: '', artist_id: null, event_date: '', location: '', description: '', image: '' }
+const emptyEvent = { name: '', artist_id: null, event_date: '', location: '', description: '', image: '', venue_id: null }
+const emptyVenue = { name: '', address: '', latitude: '', longitude: '', nearest_station: '', fare_note: '' }
 
-// 管理者専用：イベント管理／着せ替え画像の審査／推し情報の編集
+// 管理者専用：イベント管理／会場管理／着せ替え画像の審査／推し情報の編集
 export default function Admin() {
-  const [tab, setTab] = useState('events') // events | kisekae | oshi
+  const [tab, setTab] = useState('events') // events | venues | kisekae | oshi
   const [events, setEvents] = useState([])
   const [masters, setMasters] = useState([])
+  const [venues, setVenues] = useState([])
   const [images, setImages] = useState([])
   const [oshiMasters, setOshiMasters] = useState([])
   const [eventForm, setEventForm] = useState(null)
+  const [venueForm, setVenueForm] = useState(null)
   const [oshiForm, setOshiForm] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const nav = useNavigate()
 
   const loadEvents = () => api('/admin/events').then(setEvents).catch((e) => setError(e.message))
+  const loadVenues = () => api('/admin/venues').then(setVenues).catch((e) => setError(e.message))
   const loadImages = () => api('/admin/oshi-images?status=pending').then(setImages).catch((e) => setError(e.message))
   const loadOshi = () => api('/admin/oshi-master').then(setOshiMasters).catch((e) => setError(e.message))
 
   useEffect(() => {
     api('/oshi/browse').then(setMasters).catch(console.error)
-    Promise.allSettled([loadEvents(), loadImages(), loadOshi()]).finally(() => setLoading(false))
+    Promise.allSettled([loadEvents(), loadVenues(), loadImages(), loadOshi()]).finally(() => setLoading(false))
   }, [])
 
   const handleEventFile = async (e) => {
@@ -46,6 +50,27 @@ export default function Admin() {
   const removeEvent = async (ev) => {
     if (!confirm(`「${ev.name}」を削除しますか？参加者・チャットも削除されます。`)) return
     await api(`/events/${ev.id}`, { method: 'DELETE' }); loadEvents()
+  }
+
+  // 会場（venue）の登録・編集・削除（管理者のみ。判定はサーバー側でも実施）
+  const saveVenue = async (e) => {
+    e.preventDefault(); setError('')
+    try {
+      const body = {
+        name: venueForm.name, address: venueForm.address,
+        latitude: venueForm.latitude === '' ? null : Number(venueForm.latitude),
+        longitude: venueForm.longitude === '' ? null : Number(venueForm.longitude),
+        nearest_station: venueForm.nearest_station || null,
+        fare_note: venueForm.fare_note || null,
+      }
+      if (venueForm.id) await api(`/admin/venues/${venueForm.id}`, { method: 'PUT', body })
+      else await api('/admin/venues', { method: 'POST', body })
+      setVenueForm(null); loadVenues()
+    } catch (err) { setError(err.message) }
+  }
+  const removeVenue = async (v) => {
+    if (!confirm(`会場「${v.name}」を削除しますか？紐づくイベントの会場は未設定になります。`)) return
+    await api(`/admin/venues/${v.id}`, { method: 'DELETE' }); loadVenues()
   }
 
   // 着せ替え審査
@@ -72,13 +97,14 @@ export default function Admin() {
         <h2 className="font-bold text-lg text-wine">管理メニュー（管理者）</h2>
       </div>
 
-      <div className="grid grid-cols-3 bg-paper rounded-xl p-1 text-xs font-bold gap-1">
+      <div className="grid grid-cols-4 bg-paper rounded-xl p-1 text-[11px] font-bold gap-1">
         <button className={`rounded-lg py-1.5 ${tab === 'events' ? 'bg-wine text-white' : 'text-ink-soft'}`} onClick={() => setTab('events')}>🎪 イベント</button>
+        <button className={`rounded-lg py-1.5 ${tab === 'venues' ? 'bg-wine text-white' : 'text-ink-soft'}`} onClick={() => setTab('venues')}>📍 会場</button>
         <button className={`relative rounded-lg py-1.5 ${tab === 'kisekae' ? 'bg-wine text-white' : 'text-ink-soft'}`} onClick={() => setTab('kisekae')}>
-          🖼️ 着せ替え審査
+          🖼️ 審査
           {images.length > 0 && <span className="absolute -top-1 -right-1 bg-wine text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center border border-paper-card">{images.length}</span>}
         </button>
-        <button className={`rounded-lg py-1.5 ${tab === 'oshi' ? 'bg-wine text-white' : 'text-ink-soft'}`} onClick={() => setTab('oshi')}>⭐ 推し情報</button>
+        <button className={`rounded-lg py-1.5 ${tab === 'oshi' ? 'bg-wine text-white' : 'text-ink-soft'}`} onClick={() => setTab('oshi')}>⭐ 推し</button>
       </div>
 
       {error && <p className="text-wine text-xs">{error}</p>}
@@ -103,8 +129,41 @@ export default function Admin() {
                 <span className="text-xs font-bold text-wine shrink-0">👥 {ev.participant_count}人</span>
               </div>
               <div className="flex gap-2 mt-2">
-                <GhostButton onClick={() => setEventForm({ ...ev, artist_id: ev.artist_id || null, image: ev.image || '', location: ev.location || '', description: ev.description || '' })}>編集</GhostButton>
+                <GhostButton onClick={() => setEventForm({ ...ev, artist_id: ev.artist_id || null, venue_id: ev.venue_id || null, image: ev.image || '', location: ev.location || '', description: ev.description || '' })}>編集</GhostButton>
                 <GhostButton onClick={() => removeEvent(ev)}>削除</GhostButton>
+              </div>
+            </Card>
+          ))}
+        </>
+      )}
+
+      {/* 会場管理 */}
+      {tab === 'venues' && (
+        <>
+          <div className="flex justify-end">
+            <PrimaryButton onClick={() => setVenueForm({ ...emptyVenue })}>＋ 会場を登録</PrimaryButton>
+          </div>
+          <p className="text-[11px] text-ink-soft">会場を登録すると、イベント作成時に紐づけて地図・アクセスを表示できます（緯度経度が必要）。</p>
+          {!loading && venues.length === 0 && <Card><Empty icon="📍" message="登録された会場がありません。作成しましょう。" /></Card>}
+          {venues.map((v) => (
+            <Card key={v.id}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-bold">{v.name}</p>
+                  <p className="text-[11px] text-ink-soft">📮 {v.address}</p>
+                  <p className="text-[11px] text-ink-soft">🗺 {Number(v.latitude).toFixed(5)}, {Number(v.longitude).toFixed(5)}</p>
+                  {v.nearest_station && <p className="text-[11px] text-ink-soft">🚉 {v.nearest_station}</p>}
+                  {v.fare_note && <p className="text-[11px] text-ink-soft">💰 {v.fare_note}</p>}
+                </div>
+                <span className="text-[11px] text-ink-soft shrink-0">🎪 {v.event_count}件</span>
+              </div>
+              <div className="flex gap-2 mt-2">
+                <GhostButton onClick={() => setVenueForm({
+                  id: v.id, name: v.name, address: v.address,
+                  latitude: v.latitude, longitude: v.longitude,
+                  nearest_station: v.nearest_station || '', fare_note: v.fare_note || '',
+                })}>編集</GhostButton>
+                <GhostButton onClick={() => removeVenue(v)}>削除</GhostButton>
               </div>
             </Card>
           ))}
@@ -180,6 +239,13 @@ export default function Admin() {
               <input className={inputClass} value={eventForm.location}
                 onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })} placeholder="例：幕張メッセ" />
             </Field>
+            <Field label="会場（任意・地図/アクセス表示に使用）">
+              <select className={inputClass} value={eventForm.venue_id ?? ''}
+                onChange={(e) => setEventForm({ ...eventForm, venue_id: e.target.value ? Number(e.target.value) : null })}>
+                <option value="">紐づけない</option>
+                {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            </Field>
             <Field label="説明">
               <textarea className={inputClass + ' resize-none'} rows={2} value={eventForm.description}
                 onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })} />
@@ -194,6 +260,43 @@ export default function Admin() {
               </div>
             )}
             <PrimaryButton className="w-full" disabled={!eventForm.name.trim() || !eventForm.event_date}>{eventForm.id ? '更新する' : '作成する'}</PrimaryButton>
+          </form>
+        </Modal>
+      )}
+
+      {/* 会場 作成・編集モーダル */}
+      {venueForm && (
+        <Modal title={venueForm.id ? '会場を編集' : '会場を登録'} onClose={() => setVenueForm(null)}>
+          <form onSubmit={saveVenue}>
+            <Field label="会場名 *">
+              <input className={inputClass} value={venueForm.name} maxLength={80}
+                onChange={(e) => setVenueForm({ ...venueForm, name: e.target.value })} placeholder="例：幕張メッセ" />
+            </Field>
+            <Field label="住所 *">
+              <input className={inputClass} value={venueForm.address} maxLength={120}
+                onChange={(e) => setVenueForm({ ...venueForm, address: e.target.value })} placeholder="例：千葉県千葉市美浜区中瀬2-1" />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="緯度(latitude) *">
+                <input type="number" step="any" className={inputClass} value={venueForm.latitude}
+                  onChange={(e) => setVenueForm({ ...venueForm, latitude: e.target.value })} placeholder="例：35.6479" />
+              </Field>
+              <Field label="経度(longitude) *">
+                <input type="number" step="any" className={inputClass} value={venueForm.longitude}
+                  onChange={(e) => setVenueForm({ ...venueForm, longitude: e.target.value })} placeholder="例：140.0347" />
+              </Field>
+            </div>
+            <p className="text-[10px] text-ink-soft mb-3">※ 緯度経度はGoogleマップで会場を右クリック→先頭の数値をコピーして貼り付けられます。</p>
+            <Field label="最寄り駅（任意）">
+              <input className={inputClass} value={venueForm.nearest_station} maxLength={60}
+                onChange={(e) => setVenueForm({ ...venueForm, nearest_station: e.target.value })} placeholder="例：海浜幕張駅" />
+            </Field>
+            <Field label="運賃・所要時間メモ（任意）">
+              <textarea className={inputClass + ' resize-none'} rows={2} value={venueForm.fare_note} maxLength={200}
+                onChange={(e) => setVenueForm({ ...venueForm, fare_note: e.target.value })} placeholder="例：東京駅からJR京葉線で約30分・約570円" />
+            </Field>
+            <p className="text-[10px] text-ink-soft mb-3">※ 運賃は自動取得しません。目安を出したい場合のみ、このメモに自由記述してください。</p>
+            <PrimaryButton className="w-full" disabled={!venueForm.name.trim() || !venueForm.address.trim() || venueForm.latitude === '' || venueForm.longitude === ''}>{venueForm.id ? '更新する' : '登録する'}</PrimaryButton>
           </form>
         </Modal>
       )}
