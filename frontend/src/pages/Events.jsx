@@ -163,8 +163,22 @@ function SavingsModal({ event, state, onClose, onChanged, onEditGoal }) {
   const [memo, setMemo] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // 貯金サポートAI
+  const [aiReply, setAiReply] = useState('')
+  const [aiQuestion, setAiQuestion] = useState('')
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiRemaining, setAiRemaining] = useState(null)
   const balance = state.balance
   const goal = state.savings_goal
+
+  const askAi = async () => {
+    setAiBusy(true)
+    try {
+      const r = await api(`/events/${event.id}/savings/ai`, { method: 'POST', body: { message: aiQuestion || null } })
+      setAiReply(r.reply); setAiRemaining(r.remaining); setAiQuestion('')
+    } catch (err) { setAiReply(err.message) }
+    finally { setAiBusy(false) }
+  }
 
   const submit = async (e) => {
     e.preventDefault(); setError('')
@@ -197,6 +211,20 @@ function SavingsModal({ event, state, onClose, onChanged, onEditGoal }) {
         ) : (
           <button onClick={onEditGoal} className="block mx-auto text-[11px] text-wine underline mt-1">目標額を設定する</button>
         )}
+      </div>
+
+      {/* 貯金サポートAI */}
+      <div className="bg-wine/5 border border-wine/20 rounded-xl p-3 mb-3">
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-sm font-bold text-wine">🤖 貯金サポートAI</p>
+          {aiRemaining != null && <span className="text-[10px] text-ink-soft">本日あと{aiRemaining}回</span>}
+        </div>
+        {aiReply && <p className="text-sm text-ink whitespace-pre-wrap break-words bg-paper-card rounded-lg p-2.5 mb-2 border border-paper-line/60">{aiReply}</p>}
+        <input className={inputClass + ' mb-2'} value={aiQuestion} maxLength={200}
+          onChange={(e) => setAiQuestion(e.target.value)} placeholder="相談したいことを入力（任意）" />
+        <GhostButton className="w-full" disabled={aiBusy} onClick={askAi}>
+          {aiBusy ? '考え中…' : aiReply ? 'もう一度相談する' : 'AIに相談する'}
+        </GhostButton>
       </div>
 
       {/* 入金／出金 */}

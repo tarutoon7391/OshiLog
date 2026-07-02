@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { api } from '../api'
-import { PrimaryButton, inputClass } from '../components/ui'
+import { api, getAccounts, removeAccount } from '../api'
+import { PrimaryButton, inputClass, Avatar } from '../components/ui'
 
-// ID＋パスワードのログイン／新規登録（メールアドレス不要）
+// ID＋パスワードのログイン／新規登録＋端末内アカウントのクイック選択（パスワードは保存しない）
 export default function Login({ onLogin }) {
   const [mode, setMode] = useState('login') // 'login' | 'register'
   const [username, setUsername] = useState('')
@@ -10,6 +10,9 @@ export default function Login({ onLogin }) {
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [accounts, setAccounts] = useState(getAccounts())
+  // クイック選択中のアカウント（IDのみ自動入力。パスワードは毎回入力）
+  const [picked, setPicked] = useState(accounts.length > 0 ? accounts[0] : null)
 
   const submit = async (e) => {
     e.preventDefault()
@@ -28,6 +31,18 @@ export default function Login({ onLogin }) {
     }
   }
 
+  const pick = (acc) => { setPicked(acc); setUsername(acc.username); setError('') }
+  const useAnother = () => { setPicked(null); setUsername(''); setPassword('') }
+  const forget = (e, acc) => {
+    e.stopPropagation()
+    removeAccount(acc.username)
+    const next = getAccounts()
+    setAccounts(next)
+    if (picked && picked.username === acc.username) { setPicked(next[0] || null); setUsername(next[0]?.username || '') }
+  }
+
+  const showQuick = mode === 'login' && accounts.length > 0 && picked
+
   return (
     <div className="h-[100dvh] bg-paper flex items-center justify-center p-6">
       <div className="w-full max-w-sm bg-paper-card rounded-3xl shadow-xl border border-paper-line p-8">
@@ -42,26 +57,58 @@ export default function Login({ onLogin }) {
           <button className={`rounded-lg py-1.5 ${mode === 'login' ? 'bg-wine text-white' : 'text-ink-soft'}`}
             onClick={() => { setMode('login'); setError('') }}>ログイン</button>
           <button className={`rounded-lg py-1.5 ${mode === 'register' ? 'bg-wine text-white' : 'text-ink-soft'}`}
-            onClick={() => { setMode('register'); setError('') }}>新規登録</button>
+            onClick={() => { setMode('register'); setError(''); setPicked(null) }}>新規登録</button>
         </div>
 
-        <form onSubmit={submit} className="space-y-3">
-          <input className={inputClass} placeholder="ユーザーID" value={username} maxLength={20}
-            autoCapitalize="none" onChange={(e) => setUsername(e.target.value)} />
-          {mode === 'register' && (
-            <input className={inputClass} placeholder="表示名（ニックネーム）" value={displayName} maxLength={20}
-              onChange={(e) => setDisplayName(e.target.value)} />
-          )}
-          <input className={inputClass} type="password" placeholder="パスワード（4文字以上）" value={password}
-            onChange={(e) => setPassword(e.target.value)} />
-          {error && <p className="text-wine text-xs">{error}</p>}
-          <PrimaryButton className="w-full" disabled={loading || !username.trim() || !password}>
-            {loading ? '処理中...' : mode === 'login' ? 'ログイン' : '登録してはじめる'}
-          </PrimaryButton>
-        </form>
+        {showQuick ? (
+          <>
+            {/* この端末のアカウントをタップで選択（IDだけ自動入力、パスワードは入力） */}
+            <p className="text-[11px] text-ink-soft mb-2">アカウントを選んでログイン</p>
+            <div className="space-y-2 mb-3">
+              {accounts.map((a) => (
+                <button key={a.username} type="button" onClick={() => pick(a)}
+                  className={`w-full flex items-center gap-3 rounded-xl border px-3 py-2 ${picked.username === a.username ? 'border-wine bg-wine/5' : 'border-paper-line'}`}>
+                  <Avatar image={a.avatar} name={a.display_name} size="w-9 h-9" textSize="text-sm" />
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="text-sm font-bold truncate">{a.display_name}</p>
+                    <p className="text-[10px] text-ink-soft truncate">@{a.username}</p>
+                  </div>
+                  <span onClick={(e) => forget(e, a)} className="text-ink-soft/60 text-lg px-1">×</span>
+                </button>
+              ))}
+            </div>
+            <form onSubmit={submit} className="space-y-3">
+              <input className={inputClass} type="password" placeholder={`${picked.display_name} のパスワード`} value={password}
+                autoFocus onChange={(e) => setPassword(e.target.value)} />
+              {error && <p className="text-wine text-xs">{error}</p>}
+              <PrimaryButton className="w-full" disabled={loading || !password}>
+                {loading ? '処理中...' : `${picked.display_name} でログイン`}
+              </PrimaryButton>
+            </form>
+            <button onClick={useAnother} className="w-full text-center text-wine text-xs mt-4 underline">別のアカウントでログイン</button>
+          </>
+        ) : (
+          <form onSubmit={submit} className="space-y-3">
+            <input className={inputClass} placeholder="ユーザーID" value={username} maxLength={20}
+              autoCapitalize="none" onChange={(e) => setUsername(e.target.value)} />
+            {mode === 'register' && (
+              <input className={inputClass} placeholder="表示名（ニックネーム）" value={displayName} maxLength={20}
+                onChange={(e) => setDisplayName(e.target.value)} />
+            )}
+            <input className={inputClass} type="password" placeholder="パスワード（4文字以上）" value={password}
+              onChange={(e) => setPassword(e.target.value)} />
+            {error && <p className="text-wine text-xs">{error}</p>}
+            <PrimaryButton className="w-full" disabled={loading || !username.trim() || !password}>
+              {loading ? '処理中...' : mode === 'login' ? 'ログイン' : '登録してはじめる'}
+            </PrimaryButton>
+            {mode === 'login' && accounts.length > 0 && (
+              <button type="button" onClick={() => setPicked(accounts[0])} className="w-full text-center text-wine text-xs underline">保存済みアカウントから選ぶ</button>
+            )}
+          </form>
+        )}
 
         <p className="text-[11px] text-ink-soft mt-6 text-center leading-relaxed">
-          パスワードは暗号化して保存されます。
+          パスワードは暗号化して保存されます。この端末のアカウント履歴に<b>パスワードは保存されません</b>。
           <br />メールアドレスは不要です。
         </p>
       </div>

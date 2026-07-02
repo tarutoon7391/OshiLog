@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { getUser, saveAuth, clearAuth } from './api'
+import { getUser, saveAuth, clearAuth, rememberAccount } from './api'
 import { connectSocket, disconnectSocket } from './socket'
 import Layout from './components/Layout.jsx'
 import PushToasts from './components/Toast.jsx'
@@ -20,6 +20,7 @@ import Admin from './pages/Admin.jsx'
 import OshiDetail from './pages/OshiDetail.jsx'
 import EventHistory from './pages/EventHistory.jsx'
 import AlbumView from './pages/AlbumView.jsx'
+import UserProfile from './pages/UserProfile.jsx'
 
 export default function App() {
   const [user, setUser] = useState(getUser)
@@ -30,7 +31,7 @@ export default function App() {
     else disconnectSocket()
   }, [user])
 
-  const handleLogin = (auth) => { saveAuth(auth); setUser(auth.user) }
+  const handleLogin = (auth) => { saveAuth(auth); rememberAccount(auth.user); setUser(auth.user) }
   const handleLogout = () => { disconnectSocket(); clearAuth(); setUser(null) }
   // プロフィール更新時に表示名・アイコンを反映
   const refreshUser = (u) => setUser(u)
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="/events" element={<Events user={user} />} />
           <Route path="/history" element={<EventHistory />} />
           <Route path="/friends" element={<Friends />} />
+          <Route path="/users/:id" element={<UserProfile user={user} />} />
           <Route path="/chat/:roomId" element={<Chat user={user} />} />
           <Route path="/album/:roomId" element={<AlbumView user={user} />} />
           <Route path="/posts" element={<Posts />} />

@@ -51,6 +51,13 @@ export default function Friends() {
   const reject = async (f) => {
     await api(`/friends/${f.friendship_id}/reject`, { method: 'POST' }); reload()
   }
+  const togglePin = async (e, r) => {
+    e.stopPropagation()
+    try {
+      await api(`/chat/rooms/${r.id}/pin`, { method: r.pinned ? 'DELETE' : 'POST' })
+      api('/chat/rooms').then(setRooms).catch(() => {})
+    } catch (err) { alert(err.message) }
+  }
 
   const TabBtn = ({ id, label, badge }) => (
     <button onClick={() => setTab(id)}
@@ -127,11 +134,11 @@ export default function Friends() {
         <>
           {!loading && rooms.length === 0 && <Card><Empty icon="💬" message={'トークがありません。\n推し友になるか、イベントに参加すると始まります。'} /></Card>}
           {rooms.map((r) => (
-            <button key={r.id} onClick={() => nav(`/chat/${r.id}`)}
-              className="w-full text-left">
+            <div key={r.id} onClick={() => nav(`/chat/${r.id}`)} className="cursor-pointer">
               <Card className="flex items-center gap-3">
-                <div className={`w-11 h-11 rounded-full flex items-center justify-center text-xl shrink-0 ${r.type === 'event' ? 'bg-wine/15' : 'bg-paper'}`}>
+                <div className={`w-11 h-11 rounded-full flex items-center justify-center text-xl shrink-0 relative ${r.type === 'event' ? 'bg-wine/15' : 'bg-paper'}`}>
                   {r.type === 'event' ? '🎪' : '💬'}
+                  {r.pinned && <span className="absolute -top-1 -left-1 text-xs">📌</span>}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-sm truncate">
@@ -142,10 +149,13 @@ export default function Friends() {
                 </div>
                 <div className="shrink-0 flex flex-col items-end gap-1">
                   {r.last_at && <span className="text-[10px] text-ink-soft">{formatTime(r.last_at)}</span>}
-                  {r.unread_count > 0 && <span className="bg-wine text-white text-[10px] font-bold rounded-full min-w-5 h-5 px-1.5 flex items-center justify-center">{r.unread_count}</span>}
+                  <div className="flex items-center gap-1.5">
+                    {r.unread_count > 0 && <span className="bg-wine text-white text-[10px] font-bold rounded-full min-w-5 h-5 px-1.5 flex items-center justify-center">{r.unread_count}</span>}
+                    <button onClick={(e) => togglePin(e, r)} className={`text-sm ${r.pinned ? '' : 'opacity-30'}`} title={r.pinned ? 'ピン解除' : 'ピン止め'}>📌</button>
+                  </div>
                 </div>
               </Card>
-            </button>
+            </div>
           ))}
         </>
       )}

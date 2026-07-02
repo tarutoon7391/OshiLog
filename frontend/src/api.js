@@ -15,6 +15,22 @@ export function updateStoredUser(user) {
   if (a) saveAuth({ ...a, user })
 }
 
+// この端末でログインしたことのあるアカウント履歴（クイック選択用）。
+// パスワードは一切保存しない（表示名・アイコン・ユーザーIDのみ）。
+const ACCOUNTS_KEY = 'oshilog_accounts'
+export function getAccounts() {
+  try { return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || '[]') } catch { return [] }
+}
+export function rememberAccount(user) {
+  if (!user || !user.username) return
+  const list = getAccounts().filter((a) => a.username !== user.username)
+  list.unshift({ username: user.username, display_name: user.display_name || user.username, avatar: user.avatar || null })
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list.slice(0, 6)))
+}
+export function removeAccount(username) {
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(getAccounts().filter((a) => a.username !== username)))
+}
+
 export async function api(path, { method = 'GET', body } = {}) {
   const token = getToken()
   const res = await fetch('/api' + path, {

@@ -7,6 +7,7 @@ const { pool, initDb } = require('./db');
 const { hashPassword, verifyPassword, signToken, verifyToken } = require('./auth');
 const push = require('./push');
 const realtime = require('./realtime');
+const ai = require('./ai');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -381,6 +382,9 @@ app.get('/api/posts', auth, wrap(async (req, res) => {
      LEFT JOIN events e ON e.id = p.event_id
      JOIN users au ON au.id = p.user_id
      WHERE ${visibilityWhere('p')}
+       AND NOT EXISTS (SELECT 1 FROM blocks b
+             WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
+                OR (b.blocker_id = p.user_id AND b.blocked_id = $1))
      ORDER BY p.id DESC LIMIT 100`, [req.userId]);
   res.json(r.rows);
 }));
@@ -451,14 +455,28 @@ app.get('/api/friends/recommendations', auth, wrap(async (req, res) => {
          SELECT 1 FROM friendships f
          WHERE (f.requester_id = $1 AND f.addressee_id = u.id)
             OR (f.requester_id = u.id AND f.addressee_id = $1))
+       AND NOT EXISTS (
+         SELECT 1 FROM blocks b
+         WHERE (b.blocker_id = $1 AND b.blocked_id = u.id)
+            OR (b.blocker_id = u.id AND b.blocked_id = $1))
      GROUP BY u.id
      ORDER BY random() LIMIT 10`, [req.userId]);
   res.json(r.rows);
 }));
 
+// ブロック関係が存在するか（どちら向きでも）をサーバー側で判定
+async function isBlockedPair(a, b) {
+  const r = await pool.query(
+    `SELECT 1 FROM blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1) LIMIT 1`,
+    [a, b]);
+  return r.rows.length > 0;
+}
+
 app.post('/api/friends/request', auth, wrap(async (req, res) => {
   const addressee = Number(req.body.addressee_id);
   if (!addressee || addressee === req.userId) return res.status(400).json({ error: '相手が不正です' });
+  // ブロック関係があれば申請不可（サーバー側で判定）
+  if (await isBlockedPair(req.userId, addressee)) return res.status(403).json({ error: 'この相手には申請できません' });
   // 既存関係のチェック（どちら向きでも）
   const ex = await pool.query(
     `SELECT * FROM friendships WHERE (requester_id = $1 AND addressee_id = $2) OR (requester_id = $2 AND addressee_id = $1)`,
@@ -502,6 +520,82 @@ app.post('/api/friends/:id/reject', auth, wrap(async (req, res) => {
 }));
 
 // =========================================================
+// 他ユーザーのプロフィール閲覧 ＋ ブロック
+// =========================================================
+// 他ユーザーのプロフィール。非公開ユーザーは推し友以外に詳細（自己紹介・推し）を見せない。
+app.get('/api/users/:id/profile', auth, wrap(async (req, res) => {
+  const targetId = Number(req.params.id);
+  const u = await pool.query('SELECT id, username, display_name, avatar, bio, is_public FROM users WHERE id = $1', [targetId]);
+  if (!u.rows.length) return res.status(404).json({ error: '見つかりません' });
+  const t = u.rows[0];
+  const isSelf = targetId === req.userId;
+
+  const fr = await pool.query(
+    `SELECT status, requester_id, addressee_id FROM friendships
+     WHERE (requester_id = $1 AND addressee_id = $2) OR (requester_id = $2 AND addressee_id = $1)`,
+    [req.userId, targetId]);
+  const friendship = fr.rows[0] || null;
+  const isFriend = !!friendship && friendship.status === 'accepted';
+  // 自分あての未承認申請かどうか（承認ボタン表示用）
+  const pendingIncoming = !!friendship && friendship.status === 'pending' && friendship.addressee_id === req.userId;
+  const pendingOutgoing = !!friendship && friendship.status === 'pending' && friendship.requester_id === req.userId;
+
+  const iBlocked = (await pool.query('SELECT 1 FROM blocks WHERE blocker_id = $1 AND blocked_id = $2', [req.userId, targetId])).rows.length > 0;
+  const blockedMe = (await pool.query('SELECT 1 FROM blocks WHERE blocker_id = $1 AND blocked_id = $2', [targetId, req.userId])).rows.length > 0;
+
+  // DMルーム（推し友なら）
+  let roomId = null;
+  if (isFriend) {
+    const room = await pool.query(
+      `SELECT id FROM chat_rooms cr WHERE cr.type = 'dm' AND cr.id IN (
+         SELECT room_id FROM chat_room_members WHERE user_id = $1
+         INTERSECT SELECT room_id FROM chat_room_members WHERE user_id = $2) LIMIT 1`,
+      [req.userId, targetId]);
+    roomId = room.rows.length ? room.rows[0].id : null;
+  }
+
+  // 詳細（自己紹介・推し一覧）を見せてよいか：本人／推し友／公開アカウントのみ
+  const canSeeDetail = isSelf || isFriend || (t.is_public && !blockedMe);
+  let oshi = [];
+  if (canSeeDetail) {
+    const o = await pool.query(
+      `SELECT m.id AS oshi_master_id, o.name, o.color, m.genre,
+              COALESCE(m.image_url, o.image) AS image
+       FROM oshi o LEFT JOIN oshi_master m ON m.id = o.oshi_master_id
+       WHERE o.user_id = $1 ORDER BY o.id`, [targetId]);
+    oshi = o.rows;
+  }
+
+  res.json({
+    id: t.id, username: t.username, display_name: t.display_name, avatar: t.avatar,
+    bio: canSeeDetail ? t.bio : null, is_public: t.is_public,
+    is_self: isSelf, is_friend: isFriend, pending_incoming: pendingIncoming, pending_outgoing: pendingOutgoing,
+    i_blocked: iBlocked, blocked_me: blockedMe, can_see_detail: canSeeDetail,
+    room_id: roomId, oshi,
+    incoming_friendship_id: pendingIncoming ? (await pool.query(
+      `SELECT id FROM friendships WHERE requester_id = $1 AND addressee_id = $2 AND status='pending'`, [targetId, req.userId])).rows[0]?.id : null,
+  });
+}));
+
+// ブロックする：以降の申請・DMを遮断し、既存の推し友関係・保留申請は解消する（判定はサーバー側）
+app.post('/api/users/:id/block', auth, wrap(async (req, res) => {
+  const targetId = Number(req.params.id);
+  if (!targetId || targetId === req.userId) return res.status(400).json({ error: '相手が不正です' });
+  await pool.query(
+    'INSERT INTO blocks (blocker_id, blocked_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.userId, targetId]);
+  // 既存の推し友関係・保留中の申請を双方向で解消
+  await pool.query(
+    `DELETE FROM friendships WHERE (requester_id = $1 AND addressee_id = $2) OR (requester_id = $2 AND addressee_id = $1)`,
+    [req.userId, targetId]);
+  res.json({ ok: true });
+}));
+
+app.post('/api/users/:id/unblock', auth, wrap(async (req, res) => {
+  await pool.query('DELETE FROM blocks WHERE blocker_id = $1 AND blocked_id = $2', [req.userId, Number(req.params.id)]);
+  res.json({ ok: true });
+}));
+
+// =========================================================
 // チャット（DM・イベント共通）
 // =========================================================
 app.get('/api/chat/rooms', auth, wrap(async (req, res) => {
@@ -515,12 +609,27 @@ app.get('/api/chat/rooms', auth, wrap(async (req, res) => {
             (SELECT COUNT(*)::int FROM chat_room_members WHERE room_id = r.id) AS member_count,
             (SELECT COUNT(*)::int FROM chat_messages cm2
                WHERE cm2.room_id = r.id AND cm2.sender_id <> $1
-                 AND NOT EXISTS (SELECT 1 FROM chat_message_reads rr WHERE rr.message_id = cm2.id AND rr.user_id = $1)) AS unread_count
+                 AND NOT EXISTS (SELECT 1 FROM chat_message_reads rr WHERE rr.message_id = cm2.id AND rr.user_id = $1)) AS unread_count,
+            EXISTS (SELECT 1 FROM pinned_chats pc WHERE pc.room_id = r.id AND pc.user_id = $1) AS pinned
      FROM chat_rooms r
      JOIN chat_room_members m ON m.room_id = r.id AND m.user_id = $1
      LEFT JOIN events e ON e.id = r.event_id
-     ORDER BY last_at DESC NULLS LAST, r.id DESC`, [req.userId]);
+     ORDER BY pinned DESC, last_at DESC NULLS LAST, r.id DESC`, [req.userId]);
   res.json(r.rows);
+}));
+
+// トークのピン止め（メンバーのみ）。一覧の最上部にまとめて表示される
+app.post('/api/chat/rooms/:id/pin', auth, wrap(async (req, res) => {
+  const roomId = Number(req.params.id);
+  const mem = await pool.query('SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [roomId, req.userId]);
+  if (!mem.rows.length) return res.status(403).json({ error: 'アクセスできません' });
+  await pool.query('INSERT INTO pinned_chats (user_id, room_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.userId, roomId]);
+  res.json({ ok: true, pinned: true });
+}));
+
+app.delete('/api/chat/rooms/:id/pin', auth, wrap(async (req, res) => {
+  await pool.query('DELETE FROM pinned_chats WHERE user_id = $1 AND room_id = $2', [req.userId, Number(req.params.id)]);
+  res.json({ ok: true, pinned: false });
 }));
 
 app.get('/api/chat/rooms/:id/messages', auth, wrap(async (req, res) => {
@@ -646,6 +755,28 @@ app.post('/api/events/:id/savings/transactions', auth, wrap(async (req, res) => 
     [s.event_participant_id, amount, type, memo]);
   const s2 = await getSavings(Number(req.params.id), req.userId);
   res.status(201).json({ ok: true, balance: s2.balance, savings_goal: s2.savings_goal });
+}));
+
+// 貯金サポートAIに相談する。現在の貯金額は「貯金残高（getSavings）」を渡す（参戦記録の合計は使わない）。
+app.get('/api/ai/status', auth, wrap(async (req, res) => {
+  res.json({ enabled: true, ai: ai.isConfigured(), remaining: ai.remaining(req.userId), daily_limit: ai.DAILY_LIMIT });
+}));
+
+app.post('/api/events/:id/savings/ai', auth, wrap(async (req, res) => {
+  const eventId = Number(req.params.id);
+  const s = await getSavings(eventId, req.userId);
+  if (!s) return res.status(404).json({ error: 'このイベントに参加していません' });
+  const ev = await pool.query('SELECT name, event_date FROM events WHERE id = $1', [eventId]);
+  if (!ev.rows.length) return res.status(404).json({ error: 'イベントが見つかりません' });
+  // イベントまでの残り日数（DATEは 'YYYY-MM-DD' 文字列）
+  const target = new Date(ev.rows[0].event_date + 'T00:00:00');
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  const daysLeft = Math.round((target - now) / 86400000);
+  const result = await ai.savingsAdvice(req.userId, {
+    goal: s.savings_goal, balance: s.balance, daysLeft,
+    eventName: ev.rows[0].name, userMessage: req.body.message,
+  });
+  res.json(result);
 }));
 
 // イベント履歴：自分が参加した「過去の」イベントを新しい順に。参戦記録・日記の件数も返す
