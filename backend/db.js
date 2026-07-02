@@ -1,89 +1,223 @@
-// DB接続プールとスキーマ初期化
+// DB接続プールとスキーマ初期化・マイグレーション・シード
 const { Pool, types } = require('pg');
+const { hashPassword } = require('./auth');
 
 // DATE型はタイムゾーン変換せず 'YYYY-MM-DD' の文字列のまま受け取る
-// （Dateオブジェクトに変換されると日付がずれる事故が起きるため）
 types.setTypeParser(1082, (v) => v);
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-// プロトタイプにつきマイグレーションツールは使わず、起動時にCREATE TABLE IF NOT EXISTSで初期化する
-const initSql = `
+// 既存テーブルは維持しつつ、新テーブル追加・既存テーブルへのカラム追加を冪等に行う。
+// （CREATE TABLE IF NOT EXISTS と ALTER TABLE ADD COLUMN IF NOT EXISTS で新規DB・既存DBの両対応）
+const ddl = `
+-- ===== 既存テーブル（初回構築時のみ作成される） =====
 CREATE TABLE IF NOT EXISTS users (
-  id         SERIAL PRIMARY KEY,
-  username   TEXT UNIQUE NOT NULL,
+  id SERIAL PRIMARY KEY,
+  username TEXT UNIQUE NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
--- 推し（名前・カテゴリ・推しカラー・画像）
 CREATE TABLE IF NOT EXISTS oshi (
-  id         SERIAL PRIMARY KEY,
-  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name       TEXT NOT NULL,
-  category   TEXT NOT NULL DEFAULT 'アイドル',
-  color      TEXT NOT NULL DEFAULT '#ec4899',
-  image      TEXT,
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'アイドル',
+  color TEXT NOT NULL DEFAULT '#8B3A4A',
+  image TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
--- スケジュール（ライブ・配信・グッズ発売日など）
--- 推しを削除しても予定自体は残す（oshi_idはNULLになる）
 CREATE TABLE IF NOT EXISTS schedules (
-  id         SERIAL PRIMARY KEY,
-  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  oshi_id    INTEGER REFERENCES oshi(id) ON DELETE SET NULL,
-  title      TEXT NOT NULL,
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  oshi_id INTEGER REFERENCES oshi(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
   event_type TEXT NOT NULL DEFAULT 'ライブ',
   event_date DATE NOT NULL,
-  memo       TEXT,
+  memo TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
--- 参戦記録・オタ活家計簿（金額は円の整数）
 CREATE TABLE IF NOT EXISTS records (
-  id          SERIAL PRIMARY KEY,
-  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  oshi_id     INTEGER REFERENCES oshi(id) ON DELETE SET NULL,
-  title       TEXT NOT NULL,
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  oshi_id INTEGER REFERENCES oshi(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
   record_date DATE NOT NULL,
-  amount      INTEGER NOT NULL DEFAULT 0,
-  memo        TEXT,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  amount INTEGER NOT NULL DEFAULT 0,
+  memo TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
--- グッズコレクション
 CREATE TABLE IF NOT EXISTS goods (
-  id         SERIAL PRIMARY KEY,
-  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  oshi_id    INTEGER REFERENCES oshi(id) ON DELETE SET NULL,
-  name       TEXT NOT NULL,
-  category   TEXT NOT NULL DEFAULT 'アクスタ',
-  price      INTEGER,
-  image      TEXT,
-  memo       TEXT,
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  oshi_id INTEGER REFERENCES oshi(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'アクスタ',
+  price INTEGER,
+  image TEXT,
+  memo TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS posts (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  oshi_id INTEGER REFERENCES oshi(id) ON DELETE SET NULL,
+  content TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- つぶやき（アプリ内完結・SNS連携なし）
-CREATE TABLE IF NOT EXISTS posts (
-  id         SERIAL PRIMARY KEY,
-  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  oshi_id    INTEGER REFERENCES oshi(id) ON DELETE SET NULL,
-  content    TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+-- ===== 新テーブル =====
+-- 推しマスター（アプリ全体で共有される推しの実体。登録人数の算出元）
+CREATE TABLE IF NOT EXISTS oshi_master (
+  id SERIAL PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  genre TEXT NOT NULL DEFAULT 'その他',
+  image_url TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 共通イベント（管理者が作成。アーティストのライブ等）
+CREATE TABLE IF NOT EXISTS events (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  artist_id INTEGER REFERENCES oshi_master(id) ON DELETE SET NULL,
+  event_date DATE NOT NULL,
+  location TEXT,
+  description TEXT,
+  image TEXT,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 推し友（相互承認制）
+CREATE TABLE IF NOT EXISTS friendships (
+  id SERIAL PRIMARY KEY,
+  requester_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  addressee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (requester_id, addressee_id)
+);
+
+-- チャットルーム（DM・イベントの両方を同じ仕組みで扱う）
+CREATE TABLE IF NOT EXISTS chat_rooms (
+  id SERIAL PRIMARY KEY,
+  type TEXT NOT NULL DEFAULT 'dm',
+  event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS chat_room_members (
+  id SERIAL PRIMARY KEY,
+  room_id INTEGER NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE (room_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id SERIAL PRIMARY KEY,
+  room_id INTEGER NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+  sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  is_read BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- イベント参加者
+CREATE TABLE IF NOT EXISTS event_participants (
+  id SERIAL PRIMARY KEY,
+  event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reminded BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (event_id, user_id)
+);
+
+-- Web Push購読情報
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT UNIQUE NOT NULL,
+  keys JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ===== 既存テーブルへのカラム追加 =====
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE oshi ADD COLUMN IF NOT EXISTS oshi_master_id INTEGER REFERENCES oshi_master(id) ON DELETE SET NULL;
+
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS event_id INTEGER REFERENCES events(id) ON DELETE CASCADE;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS is_shared BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public_all';
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS event_id INTEGER REFERENCES events(id) ON DELETE SET NULL;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS oshi_master_id INTEGER REFERENCES oshi_master(id) ON DELETE SET NULL;
 `;
 
+// 既存データ用のバックフィルとシード投入
+async function migrateAndSeed() {
+  // 既存の個人推しに oshi_master を紐付ける（同名はまとめる）
+  const orphans = await pool.query('SELECT id, name, category FROM oshi WHERE oshi_master_id IS NULL');
+  for (const r of orphans.rows) {
+    const genre = r.category || 'その他';
+    const m = await pool.query(
+      `INSERT INTO oshi_master (name, genre) VALUES ($1, $2)
+       ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id`, [r.name, genre]);
+    await pool.query('UPDATE oshi SET oshi_master_id = $1 WHERE id = $2', [m.rows[0].id, r.id]);
+  }
+  // 既存投稿に oshi_master_id をバックフィル
+  await pool.query(
+    `UPDATE posts p SET oshi_master_id = o.oshi_master_id
+     FROM oshi o WHERE p.oshi_id = o.id AND p.oshi_master_id IS NULL`);
+  // display_name が未設定なら username で埋める
+  await pool.query('UPDATE users SET display_name = username WHERE display_name IS NULL');
+
+  // 管理者アカウント（初期シード）。ログインID: admin / パスワード: oshilog-admin
+  const admin = await pool.query("SELECT id, is_admin FROM users WHERE username = 'admin'");
+  let adminId;
+  if (!admin.rows.length) {
+    const h = await hashPassword('oshilog-admin');
+    const ins = await pool.query(
+      "INSERT INTO users (username, password_hash, display_name, is_admin) VALUES ('admin', $1, '管理者', true) RETURNING id", [h]);
+    adminId = ins.rows[0].id;
+  } else {
+    adminId = admin.rows[0].id;
+    if (!admin.rows[0].is_admin) await pool.query("UPDATE users SET is_admin = true WHERE id = $1", [adminId]);
+  }
+
+  // 旧デモユーザー(demo)にパスワードを設定して引き続きログインできるようにする（パスワード: demo）
+  const demo = await pool.query("SELECT id, password_hash FROM users WHERE username = 'demo'");
+  if (demo.rows.length && !demo.rows[0].password_hash) {
+    const h = await hashPassword('demo');
+    await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [h, demo.rows[0].id]);
+  }
+
+  // デモ用の共通イベントを用意（同名があればスキップ）
+  const demoEvents = [
+    { name: 'サマーソニック2026', date: '2026-08-15', loc: '幕張メッセ', desc: '夏の大型音楽フェス。複数ステージ同時開催。' },
+    { name: 'アニメロサマーライブ2026', date: '2026-08-28', loc: 'さいたまスーパーアリーナ', desc: '声優・アーティストによるアニソンの祭典。' },
+    { name: '推しフェス winter', date: '2026-12-20', loc: '東京ドーム', desc: '年末恒例の合同ライブイベント。' },
+  ];
+  for (const e of demoEvents) {
+    const ex = await pool.query('SELECT id FROM events WHERE name = $1', [e.name]);
+    if (!ex.rows.length) {
+      await pool.query(
+        'INSERT INTO events (name, event_date, location, description, created_by) VALUES ($1, $2, $3, $4, $5)',
+        [e.name, e.date, e.loc, e.desc, adminId]);
+    }
+  }
+}
+
 async function initDb() {
-  await pool.query(initSql);
+  await pool.query(ddl);
+  await migrateAndSeed();
 }
 
 module.exports = { pool, initDb };
