@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { formatTime, readFileAsDataUrl, attachmentTypeOf } from '../util'
-import { Avatar } from '../components/ui'
+import { Avatar, Modal, PrimaryButton, GhostButton } from '../components/ui'
 
 // チャット画面（DM・イベント共通。Socket.ioでリアルタイム＋既読＋添付＋共有アルバム）
 export default function Chat({ user }) {
@@ -14,8 +14,10 @@ export default function Chat({ user }) {
   const [text, setText] = useState('')
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
+  const [pending, setPending] = useState(null) // 送信確認待ちの添付 { url, type, name }
   const bottomRef = useRef(null)
   const fileRef = useRef(null)
+  const taRef = useRef(null)
   const rid = Number(roomId)
 
   // 開いている間は既読を送る
@@ -67,18 +69,28 @@ export default function Chat({ user }) {
     if (!content) return
     doSend({ content })
     setText('')
+    if (taRef.current) taRef.current.style.height = 'auto'
   }
 
+  // ファイルを選んだら、まずプレビューを出して送信確認する（LINE風）
   const pickFile = async (e) => {
     const file = e.target.files[0]
     e.target.value = '' // 同じファイルを連続で選べるように
     if (!file) return
-    setError(''); setSending(true)
+    setError('')
     try {
       const url = await readFileAsDataUrl(file, 5) // 添付は5MBまで
-      doSend({ attachment: { url, type: attachmentTypeOf(file), name: file.name } })
+      setPending({ url, type: attachmentTypeOf(file), name: file.name })
     } catch (err) { setError(err.message) }
-    finally { setSending(false) }
+  }
+
+  // 確認画面で「送信」を押したら実際に送る
+  const confirmSend = () => {
+    if (!pending) return
+    setSending(true)
+    doSend({ attachment: pending })
+    setPending(null)
+    setTimeout(() => setSending(false), 400)
   }
 
   // チャットの画像・動画を共有アルバムに保存
@@ -162,15 +174,38 @@ export default function Chat({ user }) {
 
       {error && <p className="text-wine text-[11px] text-center px-3">{error}</p>}
 
-      {/* 入力（固定） */}
-      <form onSubmit={send} className="shrink-0 bg-paper-card border-t border-paper-line p-2 flex gap-2 items-center pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
+      {/* 入力（固定）。改行できるようテキストエリア。送信は➤ボタンのみ（Enterは改行） */}
+      <form onSubmit={send} className="shrink-0 bg-paper-card border-t border-paper-line p-2 flex gap-2 items-end pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
         <input ref={fileRef} type="file" accept="image/*,video/*,*/*" className="hidden" onChange={pickFile} />
         <button type="button" onClick={() => fileRef.current?.click()} disabled={sending}
-          className="text-xl w-9 h-9 shrink-0 rounded-full border border-paper-line text-wine disabled:opacity-40">＋</button>
-        <input className="flex-1 rounded-full border border-paper-line bg-white/70 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-wine/40"
-          placeholder={sending ? '送信中…' : 'メッセージを入力'} value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} />
-        <button type="submit" disabled={!text.trim()} className="bg-wine text-white rounded-full w-10 h-10 shrink-0 disabled:opacity-40">➤</button>
+          className="text-xl w-9 h-9 shrink-0 rounded-full border border-paper-line text-wine disabled:opacity-40 mb-0.5">＋</button>
+        <textarea ref={taRef} rows={1}
+          className="flex-1 resize-none rounded-2xl border border-paper-line bg-white/70 px-4 py-2 text-sm leading-5 max-h-28 focus:outline-none focus:ring-2 focus:ring-wine/40"
+          placeholder={sending ? '送信中…' : 'メッセージを入力（改行OK）'} value={text} maxLength={1000}
+          onChange={(e) => setText(e.target.value)}
+          onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 112) + 'px' }} />
+        <button type="submit" disabled={!text.trim()} className="bg-wine text-white rounded-full w-10 h-10 shrink-0 disabled:opacity-40 mb-0.5">➤</button>
       </form>
+
+      {/* 送信確認（LINE風の送信前プレビュー） */}
+      {pending && (
+        <Modal title="この内容を送信しますか？" onClose={() => setPending(null)}>
+          <div className="flex justify-center mb-4">
+            {pending.type === 'image' && <img src={pending.url} alt="プレビュー" className="max-h-72 rounded-xl object-contain" />}
+            {pending.type === 'video' && <video src={pending.url} controls className="max-h-72 rounded-xl" />}
+            {pending.type === 'file' && (
+              <div className="bg-paper rounded-xl px-4 py-6 text-center">
+                <div className="text-4xl mb-2">📎</div>
+                <p className="text-sm break-words max-w-60">{pending.name}</p>
+              </div>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <GhostButton className="flex-1" onClick={() => setPending(null)}>キャンセル</GhostButton>
+            <PrimaryButton className="flex-1" onClick={confirmSend}>送信する</PrimaryButton>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

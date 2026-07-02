@@ -1,4 +1,5 @@
 // 画面共通の小さなUI部品（紙の手帳デザイン）
+import { createPortal } from 'react-dom'
 
 // 推し・ユーザーのアイコン（画像がなければ色＋頭文字）
 export function Avatar({ image, name, color = '#8b3a4a', size = 'w-12 h-12', textSize = 'text-lg' }) {
@@ -26,12 +27,14 @@ export function Card({ children, className = '' }) {
 }
 
 // 画面下からせり上がるモーダル
-// 下端はボトムナビ・ホームインジケータ分の余白を確保し、操作ボタンが隠れないようにする
+// document.body へポータルして、スクロール領域や固定ナビより確実に最前面へ出す
+// （iOSでスクロールコンテナ内の fixed が誤動作し、ボトムナビに隠れる問題への対策）
+// 下端はボトムナビ・ホームインジケータ分の余白も確保して、操作ボタンが必ず押せるようにする
 export function Modal({ title, onClose, children }) {
-  return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-ink/40" onClick={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40" onClick={onClose}>
       <div
-        className="w-full max-w-md bg-paper-card rounded-t-3xl px-5 pt-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] max-h-[85vh] scroll-area"
+        className="w-full max-w-md bg-paper-card rounded-t-3xl px-5 pt-5 pb-[calc(env(safe-area-inset-bottom)+2rem)] max-h-[88vh] scroll-area"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -40,7 +43,8 @@ export function Modal({ title, onClose, children }) {
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
