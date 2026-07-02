@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import { api } from '../api'
 import { currentMonth, shiftMonth, todayStr, formatYen } from '../util'
-import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty } from '../components/ui'
+import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty, Loading } from '../components/ui'
 
 const emptyForm = { title: '', record_date: '', amount: '', oshi_id: null, memo: '', event_id: null }
 
@@ -19,9 +19,10 @@ export default function Records() {
   const [stats, setStats] = useState(null)
   const [form, setForm] = useState(null)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
 
   const reload = () => {
-    api(`/records?month=${month}`).then(setList).catch(console.error)
+    api(`/records?month=${month}`).then(setList).catch(console.error).finally(() => setLoading(false))
     api('/stats/summary').then(setStats).catch(console.error)
   }
   useEffect(() => { reload() }, [month])
@@ -67,7 +68,8 @@ export default function Records() {
             <button onClick={() => setMonth(shiftMonth(month, 1))} className="text-wine text-xl px-2">›</button>
           </Card>
 
-          {list.length === 0 && <Card><Empty icon="💰" message={'この月の記録はありません。\nライブ参戦やグッズ購入を記録しましょう！'} /></Card>}
+          {loading && <Loading label="記録を読み込み中…" />}
+          {!loading && list.length === 0 && <Card><Empty icon="💰" message={'この月の記録はありません。\nライブ参戦やグッズ購入を記録しましょう！'} /></Card>}
 
           {list.map((r) => (
             <Card key={r.id} className="flex items-center gap-3">
@@ -146,7 +148,7 @@ export default function Records() {
             <Field label="推し">
               <OshiSelect oshiList={oshiList} value={form.oshi_id} onChange={(v) => setForm({ ...form, oshi_id: v })} />
             </Field>
-            <Field label="イベント（任意・貯金の進捗に反映）">
+            <Field label="イベント（任意・イベント履歴に記録）">
               <select className={inputClass} value={form.event_id ?? ''}
                 onChange={(e) => setForm({ ...form, event_id: e.target.value ? Number(e.target.value) : null })}>
                 <option value="">紐づけない</option>

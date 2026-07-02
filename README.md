@@ -55,9 +55,10 @@
 `users`(is_admin・is_public等) / `oshi_master`(共有マスター・official_url・goods_url) / `oshi`(個人の推し) /
 `schedules`(event_id・start_time・end_time) / `schedule_shares`(予定の共有先) /
 `records`(event_id) / `goods` / `posts`(visibility・event_id) / `diary_entries`(日記・visibility) /
-`oshi_images`(着せ替え審査) / `friendships` / `chat_rooms` / `chat_room_members` /
+`oshi_images`(着せ替え審査) / `user_oshi_display_image`(推しの表示画像をユーザーごとに選択) /
+`friendships` / `chat_rooms` / `chat_room_members` /
 `chat_messages`(attachment_*) / `chat_message_reads`(既読) / `album_photos`(共有アルバム) /
-`events` / `event_participants`(savings_goal) / `push_subscriptions`
+`events` / `event_participants`(savings_goal) / `savings_transactions`(貯金の入出金) / `push_subscriptions`
 
 テーブルはサーバー起動時に自動作成・マイグレーションされます（`CREATE TABLE IF NOT EXISTS` ＋ `ALTER ... ADD COLUMN IF NOT EXISTS`）。
 
@@ -118,6 +119,22 @@ railway up --ci -s web   # リポジトリ直下で実行（Dockerfileでビル�
 - [ ] 通知の種類ごとのON/OFF設定
 
 ## 📜 更新履歴
+
+### 2026-07-02（第2弾修正：着せ替え・貯金の仕様訂正＋全画面ローディング）
+- **推しの着せ替え（仕様訂正）**: 承認済み画像が誤って「個人のプロフィールアイコン」になっていたのを修正。
+  承認済み画像は**その推しの表示画像**として、`user_oshi_display_image` テーブルでユーザーごとに選択。
+  選んだ画像は**そのユーザー自身の画面でのみ**（推しタイル・推し詳細・ホームの推し一覧など）反映され、
+  他ユーザーには影響しない（同じ推しにユーザーごと別画像もOK）。未選択なら `oshi_master.image_url`（デフォルト）を表示。
+  選択UIは推し詳細ページに設置。プロフィールの個人アイコン（自由アップロード）は従来通り別機能として不変
+- **貯金目標（仕様訂正）**: 進捗を参戦記録（支出）合計から算出していたのを廃止し、
+  **貯金（入出金）を参戦記録と完全に分離**。`savings_transactions`（deposit/withdrawal）を新設し、
+  残高＝入金合計−出金合計で算出。達成度バーのタップで入出金モーダルを開き、貯金・引き出しが可能
+  （目標未達でもいつでも引き出せるが、**残高を超える出金は不可**）。入出金履歴も表示。
+  ※ 参戦記録のデータ・ロジックには一切変更なし
+- **全画面ローディング**: 「取得中／取得完了で0件／データあり」の3状態を明確化。
+  取得中は紙トーンのスタンプ演出（`Loading`）を表示し、「データがありません」は**取得完了かつ0件のときだけ**表示。
+  推し・予定・記録・グッズ・つぶやき・日記・チャット・イベント・貯金・履歴・アルバム等の全画面に適用
+- ※「貯金サポートAI」は本リポジトリには未実装のため該当修正なし。貯金残高の算出は `getSavings()` に一元化済み
 
 ### 2026-07-02（第2弾：バグ修正＋新機能）
 - **バグ修正**: モバイルで日付詳細ビュー等のモーダル内ボタンがボトムナビ・ホームインジケータと

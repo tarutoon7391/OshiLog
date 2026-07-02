@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { VISIBILITIES, VISIBILITY_MAP, formatDateJa, todayStr } from '../util'
-import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty, Avatar } from '../components/ui'
+import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty, Avatar, Loading } from '../components/ui'
 
 const emptyForm = { entry_date: '', title: '', content: '', oshi_id: null, related_event_id: null, visibility: 'private' }
 
@@ -15,11 +15,13 @@ export default function Diary() {
   const [page, setPage] = useState(0) // 手帳のめくりページ
   const [form, setForm] = useState(null)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [feedLoading, setFeedLoading] = useState(true)
 
-  const reload = () => api('/diary').then((e) => { setEntries(e); setPage((p) => Math.min(p, Math.max(0, e.length - 1))) }).catch(console.error)
+  const reload = () => api('/diary').then((e) => { setEntries(e); setPage((p) => Math.min(p, Math.max(0, e.length - 1))) }).catch(console.error).finally(() => setLoading(false))
   useEffect(() => {
     reload()
-    api('/diary/feed').then(setFeed).catch(console.error)
+    api('/diary/feed').then(setFeed).catch(console.error).finally(() => setFeedLoading(false))
     api('/oshi').then(setOshiList).catch(console.error)
     api('/events').then((evs) => setJoinedEvents(evs.filter((e) => e.joined))).catch(console.error)
   }, [])
@@ -67,7 +69,9 @@ export default function Diary() {
 
       {/* わたしの手帳（ページめくりUI） */}
       {tab === 'mine' && (
-        entries.length === 0 ? (
+        loading ? (
+          <Loading label="日記を読み込み中…" />
+        ) : entries.length === 0 ? (
           <Card><Empty icon="📔" message={'まだ日記がありません。\n今日の推し活を書き残しましょう。'} /></Card>
         ) : (
           <>
@@ -105,7 +109,8 @@ export default function Diary() {
       {/* みんなの日記（公開範囲はサーバー側で判定済み） */}
       {tab === 'feed' && (
         <>
-          {feed.length === 0 && <Card><Empty icon="🌏" message={'公開されている日記はまだありません。'} /></Card>}
+          {feedLoading && <Loading label="日記を読み込み中…" />}
+          {!feedLoading && feed.length === 0 && <Card><Empty icon="🌏" message={'公開されている日記はまだありません。'} /></Card>}
           {feed.map((d) => (
             <Card key={d.id}>
               <div className="flex items-center gap-2">

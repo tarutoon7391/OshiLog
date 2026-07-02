@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { EVENT_TYPES, EVENT_ICONS, todayStr, formatDateJa, formatHm } from '../util'
-import { Modal, Field, inputClass, OshiSelect, PrimaryButton, GhostButton, Empty, Avatar } from '../components/ui'
+import { Modal, Field, inputClass, OshiSelect, PrimaryButton, GhostButton, Empty, Avatar, Loading } from '../components/ui'
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 const pad = (n) => String(n).padStart(2, '0')
@@ -47,21 +47,22 @@ export default function Calendar() {
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [onlyWithEvents, setOnlyWithEvents] = useState(false) // 予定がある月だけ表示
+  const [loading, setLoading] = useState(true)
   const months = useMemo(buildMonths, [])
   const todayRef = useRef(null)
   const today = todayStr()
 
-  const reload = () => api('/schedules').then(setSchedules).catch(console.error)
+  const reload = () => api('/schedules').then(setSchedules).catch(console.error).finally(() => setLoading(false))
   useEffect(() => {
     reload()
     api('/oshi').then(setOshiList).catch(console.error)
     api('/friends').then(setFriends).catch(console.error)
   }, [])
 
-  // 起動時に今月へスクロール
+  // 読み込み完了後に今月へスクロール
   useEffect(() => {
-    if (todayRef.current) todayRef.current.scrollIntoView({ block: 'start' })
-  }, [months])
+    if (!loading && todayRef.current) todayRef.current.scrollIntoView({ block: 'start' })
+  }, [loading, months])
 
   // 日付ごとに予定をまとめる
   const byDate = useMemo(() => {
@@ -151,6 +152,8 @@ export default function Calendar() {
             </button>
           ))}
         </div>
+      ) : loading ? (
+        <Loading label="予定を読み込み中…" />
       ) : (
         <>
           <div className="flex items-center justify-between">

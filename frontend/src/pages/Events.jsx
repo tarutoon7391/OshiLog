@@ -2,17 +2,19 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
-import { formatDateJa, daysUntil, formatYen } from '../util'
-import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty, ProgressBar } from '../components/ui'
+import { formatDateJa, daysUntil, formatYen, formatTime } from '../util'
+import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty, ProgressBar, Loading } from '../components/ui'
 
-// 共通イベント一覧（閲覧・参加は全員。作成は管理者のみ＝/admin）＋貯金目標
+// 共通イベント一覧＋貯金（参戦記録＝支出とは完全に別の、入出金で管理する貯金）
 export default function Events({ user }) {
   const [events, setEvents] = useState([])
+  const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(null)
-  const [goalForm, setGoalForm] = useState(null) // { id, name, savings_goal }
+  const [goalForm, setGoalForm] = useState(null)   // 目標額の設定 { id, name, savings_goal }
+  const [savings, setSavings] = useState(null)      // 貯金モーダル { event, state }
   const nav = useNavigate()
 
-  const reload = () => api('/events').then(setEvents).catch(console.error)
+  const reload = () => api('/events').then(setEvents).catch(console.error).finally(() => setLoading(false))
   useEffect(() => { reload() }, [])
 
   const join = async (ev) => {
@@ -37,9 +39,19 @@ export default function Events({ user }) {
     e.preventDefault()
     await api(`/events/${goalForm.id}/savings`, { method: 'PUT', body: { savings_goal: goalForm.savings_goal === '' ? null : Number(goalForm.savings_goal) } })
     setGoalForm(null); reload()
+    if (savings && savings.event.id === goalForm.id) openSavings(savings.event) // 開いていれば更新
+  }
+
+  const openSavings = async (ev) => {
+    try {
+      const state = await api(`/events/${ev.id}/savings`)
+      setSavings({ event: ev, state })
+    } catch (err) { alert(err.message) }
   }
 
   const now = new Date().toISOString().slice(0, 10)
+
+  if (loading) return <Loading label="イベントを読み込み中…" />
 
   return (
     <div className="space-y-3">
@@ -73,26 +85,31 @@ export default function Events({ user }) {
             </div>
             {ev.description && <p className="text-xs text-ink-soft mt-2">{ev.description}</p>}
 
-            {/* 貯金目標の進捗（参加者のみ） */}
+            {/* 貯金（参加者のみ）。バーやカードをタップで入出金モーダルへ */}
             {ev.joined && (
               <div className="mt-3 bg-paper rounded-xl p-3">
                 {ev.savings_goal ? (
-                  <>
+                  <button onClick={() => openSavings(ev)} className="w-full text-left">
                     <div className="flex items-center justify-between text-[11px] mb-1">
-                      <span className="text-ink-soft">🐷 貯金目標</span>
+                      <span className="text-ink-soft">🐷 貯金</span>
                       <span className="font-bold text-wine">{formatYen(ev.saved_amount)} / {formatYen(ev.savings_goal)}</span>
                     </div>
                     <ProgressBar value={ev.saved_amount} max={ev.savings_goal} />
                     <div className="flex items-center justify-between mt-1">
                       <span className="text-[10px] text-ink-soft">
-                        {ev.saved_amount >= ev.savings_goal ? '🎉 目標達成！' : `あと ${formatYen(ev.savings_goal - ev.saved_amount)}`}
+                        {ev.saved_amount >= ev.savings_goal ? '🎉 目標達成！' : `目標まで あと ${formatYen(Math.max(0, ev.savings_goal - ev.saved_amount))}`}
                       </span>
-                      <button onClick={() => setGoalForm({ id: ev.id, name: ev.name, savings_goal: ev.savings_goal })} className="text-[10px] text-wine underline">変更</button>
+                      <span className="text-[10px] text-wine underline">貯金・引き出し ›</span>
                     </div>
-                    <p className="text-[9px] text-ink-soft mt-1">※ 家計簿でこのイベントを選んだ記録が積み上がります</p>
-                  </>
+                  </button>
                 ) : (
-                  <button onClick={() => setGoalForm({ id: ev.id, name: ev.name, savings_goal: '' })} className="text-xs text-wine underline">🐷 貯金目標を設定する</button>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-ink-soft">🐷 貯金残高 {formatYen(ev.saved_amount)}</span>
+                    <div className="flex gap-3">
+                      <button onClick={() => openSavings(ev)} className="text-xs text-wine underline">入出金</button>
+                      <button onClick={() => setGoalForm({ id: ev.id, name: ev.name, savings_goal: '' })} className="text-xs text-wine underline">目標を設定</button>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -122,11 +139,101 @@ export default function Events({ user }) {
               <input type="number" min="0" className={inputClass} value={goalForm.savings_goal}
                 onChange={(e) => setGoalForm({ ...goalForm, savings_goal: e.target.value })} placeholder="例：30000" />
             </Field>
-            <p className="text-[11px] text-ink-soft mb-3">家計簿の記録でこのイベントを選ぶと、その合計が進捗になります。空欄で保存すると目標を解除します。</p>
+            <p className="text-[11px] text-ink-soft mb-3">目標に対して、貯金（入金）の残高がどれくらい貯まったかを表示します。空欄で保存すると目標を解除します。</p>
             <PrimaryButton className="w-full">保存する</PrimaryButton>
           </form>
         </Modal>
       )}
+
+      {/* 貯金の入出金モーダル */}
+      {savings && (
+        <SavingsModal event={savings.event} state={savings.state}
+          onClose={() => setSavings(null)}
+          onChanged={() => { openSavings(savings.event); reload() }}
+          onEditGoal={() => setGoalForm({ id: savings.event.id, name: savings.event.name, savings_goal: savings.state.savings_goal ?? '' })} />
+      )}
     </div>
+  )
+}
+
+// 貯金の入金・出金・履歴を扱うモーダル（残高 = 入金合計 − 出金合計。参戦記録とは無関係）
+function SavingsModal({ event, state, onClose, onChanged, onEditGoal }) {
+  const [type, setType] = useState('deposit') // deposit | withdrawal
+  const [amount, setAmount] = useState('')
+  const [memo, setMemo] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const balance = state.balance
+  const goal = state.savings_goal
+
+  const submit = async (e) => {
+    e.preventDefault(); setError('')
+    const n = Math.floor(Number(amount))
+    if (!n || n <= 0) { setError('金額を正しく入力してください'); return }
+    if (type === 'withdrawal' && n > balance) { setError('貯金残高を超える金額は引き出せません'); return }
+    setBusy(true)
+    try {
+      await api(`/events/${event.id}/savings/transactions`, { method: 'POST', body: { type, amount: n, memo: memo || null } })
+      setAmount(''); setMemo(''); onChanged()
+    } catch (err) { setError(err.message) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Modal title={`🐷 ${event.name} の貯金`} onClose={onClose}>
+      {/* 残高・目標・達成度 */}
+      <div className="bg-paper rounded-xl p-3 mb-3">
+        <p className="text-center text-[11px] text-ink-soft">現在の貯金残高</p>
+        <p className="text-center text-2xl font-black text-wine">{formatYen(balance)}</p>
+        {goal ? (
+          <>
+            <div className="flex items-center justify-between text-[11px] mt-2 mb-1">
+              <span className="text-ink-soft">目標 {formatYen(goal)}</span>
+              <span className="text-wine font-bold">{Math.min(100, Math.round((balance / goal) * 100))}%</span>
+            </div>
+            <ProgressBar value={balance} max={goal} />
+            <button onClick={onEditGoal} className="text-[10px] text-wine underline mt-1">目標を変更</button>
+          </>
+        ) : (
+          <button onClick={onEditGoal} className="block mx-auto text-[11px] text-wine underline mt-1">目標額を設定する</button>
+        )}
+      </div>
+
+      {/* 入金／出金 */}
+      <div className="grid grid-cols-2 gap-1 bg-paper rounded-xl p-1 mb-2 text-sm font-bold">
+        <button type="button" className={`rounded-lg py-1.5 ${type === 'deposit' ? 'bg-wine text-white' : 'text-ink-soft'}`} onClick={() => { setType('deposit'); setError('') }}>＋ 貯金する</button>
+        <button type="button" className={`rounded-lg py-1.5 ${type === 'withdrawal' ? 'bg-wine text-white' : 'text-ink-soft'}`} onClick={() => { setType('withdrawal'); setError('') }}>－ 引き出す</button>
+      </div>
+      <form onSubmit={submit}>
+        <Field label={type === 'deposit' ? '貯金する金額（円）' : '引き出す金額（円）'}>
+          <input type="number" min="1" className={inputClass} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="例：3000" />
+        </Field>
+        <Field label="メモ（任意）">
+          <input className={inputClass} value={memo} maxLength={100} onChange={(e) => setMemo(e.target.value)} placeholder="例：バイト代から" />
+        </Field>
+        {type === 'withdrawal' && <p className="text-[10px] text-ink-soft -mt-2 mb-2">※ 残高（{formatYen(balance)}）を超える引き出しはできません。目標未達でもいつでも引き出せます。</p>}
+        {error && <p className="text-wine text-xs mb-2">{error}</p>}
+        <PrimaryButton className="w-full" disabled={busy}>{type === 'deposit' ? '貯金する' : '引き出す'}</PrimaryButton>
+      </form>
+
+      {/* 入出金履歴 */}
+      <p className="text-sm font-bold text-wine mt-4 mb-1">入出金の履歴</p>
+      {state.transactions.length === 0 ? (
+        <p className="text-[11px] text-ink-soft">まだ入出金がありません。</p>
+      ) : (
+        <div className="space-y-1">
+          {state.transactions.map((t) => (
+            <div key={t.id} className="flex items-center gap-2 bg-paper rounded-lg px-2.5 py-1.5">
+              <span className={`text-sm shrink-0 ${t.type === 'deposit' ? 'text-[#5e7a5b]' : 'text-wine'}`}>{t.type === 'deposit' ? '＋' : '－'}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold">{formatYen(t.amount)}<span className="text-[10px] text-ink-soft font-normal ml-1">{t.type === 'deposit' ? '貯金' : '引き出し'}</span></p>
+                {t.memo && <p className="text-[11px] text-ink-soft truncate">{t.memo}</p>}
+              </div>
+              <span className="text-[10px] text-ink-soft shrink-0">{formatTime(t.created_at)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
   )
 }

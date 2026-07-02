@@ -100,10 +100,20 @@ app.put('/api/me', auth, wrap(async (req, res) => {
 // =========================================================
 // 推し（個人登録）＋ 推しマスター（ブラウズ）
 // =========================================================
-// ジャンルブロック→タイル一覧用。全マスターを登録人数付きで返す
+// 推しの「表示画像」を、ログイン中ユーザーが選んだ承認済み画像（着せ替え）で解決するSQL断片。
+// 未選択なら oshi_master.image_url（デフォルト）にフォールバックする。$1 = 閲覧者ユーザーID。
+// ユーザー個人のプロフィールアイコンとは完全に別物（users.avatar には一切触れない）。
+const displayImageSql = (masterIdCol, defaultImgCol) => `COALESCE(
+  (SELECT oi.image_url FROM user_oshi_display_image ud
+     JOIN oshi_images oi ON oi.id = ud.oshi_image_id
+   WHERE ud.user_id = $1 AND ud.oshi_master_id = ${masterIdCol} AND oi.status = 'approved'),
+  ${defaultImgCol})`;
+
+// ジャンルブロック→タイル一覧用。全マスターを登録人数付きで返す（表示画像は閲覧者ごとに解決）
 app.get('/api/oshi/browse', auth, wrap(async (req, res) => {
   const r = await pool.query(
     `SELECT m.id, m.name, m.genre, m.image_url,
+            ${displayImageSql('m.id', 'm.image_url')} AS display_image,
             COUNT(o.id)::int AS registered_count,
             BOOL_OR(o.user_id = $1) AS mine
      FROM oshi_master m
@@ -113,10 +123,11 @@ app.get('/api/oshi/browse', auth, wrap(async (req, res) => {
   res.json(r.rows);
 }));
 
-// 自分が登録している推し
+// 自分が登録している推し（表示画像は自分が選んだ着せ替え画像を優先）
 app.get('/api/oshi', auth, wrap(async (req, res) => {
   const r = await pool.query(
     `SELECT o.*, m.genre, m.image_url AS master_image,
+            ${displayImageSql('o.oshi_master_id', 'm.image_url')} AS display_image,
             (SELECT COUNT(*)::int FROM oshi o2 WHERE o2.oshi_master_id = o.oshi_master_id) AS registered_count
      FROM oshi o LEFT JOIN oshi_master m ON m.id = o.oshi_master_id
      WHERE o.user_id = $1 ORDER BY o.id`, [req.userId]);
@@ -574,12 +585,28 @@ app.get('/api/events', auth, wrap(async (req, res) => {
             (SELECT COUNT(*)::int FROM event_participants ep WHERE ep.event_id = e.id) AS participant_count,
             EXISTS (SELECT 1 FROM event_participants ep WHERE ep.event_id = e.id AND ep.user_id = $1) AS joined,
             (SELECT savings_goal FROM event_participants ep WHERE ep.event_id = e.id AND ep.user_id = $1) AS savings_goal,
-            COALESCE((SELECT SUM(rec.amount)::int FROM records rec WHERE rec.event_id = e.id AND rec.user_id = $1), 0) AS saved_amount,
+            COALESCE((SELECT SUM(CASE WHEN st.type = 'deposit' THEN st.amount ELSE -st.amount END)::int
+                      FROM savings_transactions st
+                      JOIN event_participants ep2 ON ep2.id = st.event_participant_id
+                      WHERE ep2.event_id = e.id AND ep2.user_id = $1), 0) AS saved_amount,
             (SELECT id FROM chat_rooms cr WHERE cr.type = 'event' AND cr.event_id = e.id LIMIT 1) AS room_id
      FROM events e LEFT JOIN oshi_master m ON m.id = e.artist_id
      ORDER BY e.event_date`, [req.userId]);
   res.json(r.rows);
 }));
+
+// 貯金残高の唯一の算出元。参加者本人の event_participant・目標額・残高（入金合計−出金合計）を返す。
+// ※ 参戦記録（支出）とは完全に別。将来AI等に「現在の貯金額」を渡す場合も必ずこれを使うこと。
+async function getSavings(eventId, userId) {
+  const p = await pool.query(
+    'SELECT id, savings_goal FROM event_participants WHERE event_id = $1 AND user_id = $2', [eventId, userId]);
+  if (!p.rows.length) return null;
+  const epId = p.rows[0].id;
+  const bal = await pool.query(
+    `SELECT COALESCE(SUM(CASE WHEN type = 'deposit' THEN amount ELSE -amount END), 0)::int AS balance
+     FROM savings_transactions WHERE event_participant_id = $1`, [epId]);
+  return { event_participant_id: epId, savings_goal: p.rows[0].savings_goal, balance: bal.rows[0].balance };
+}
 
 // 参加予定イベントの貯金目標額を設定（参加者本人のみ）
 app.put('/api/events/:id/savings', auth, wrap(async (req, res) => {
@@ -591,6 +618,34 @@ app.put('/api/events/:id/savings', auth, wrap(async (req, res) => {
     [value, eventId, req.userId]);
   if (!r.rows.length) return res.status(404).json({ error: 'このイベントに参加していません' });
   res.json({ ok: true, savings_goal: r.rows[0].savings_goal });
+}));
+
+// 貯金の状態（目標・残高・入出金履歴）を取得
+app.get('/api/events/:id/savings', auth, wrap(async (req, res) => {
+  const s = await getSavings(Number(req.params.id), req.userId);
+  if (!s) return res.status(404).json({ error: 'このイベントに参加していません' });
+  const tx = await pool.query(
+    `SELECT id, amount, type, memo, created_at FROM savings_transactions
+     WHERE event_participant_id = $1 ORDER BY id DESC`, [s.event_participant_id]);
+  res.json({ savings_goal: s.savings_goal, balance: s.balance, transactions: tx.rows });
+}));
+
+// 貯金の入金／出金。出金は残高を超えられない（目標未達でもいつでも引き出せる）
+app.post('/api/events/:id/savings/transactions', auth, wrap(async (req, res) => {
+  const s = await getSavings(Number(req.params.id), req.userId);
+  if (!s) return res.status(404).json({ error: 'このイベントに参加していません' });
+  const type = req.body.type === 'withdrawal' ? 'withdrawal' : 'deposit';
+  const amount = Math.floor(Number(req.body.amount));
+  const memo = req.body.memo ? String(req.body.memo).slice(0, 100) : null;
+  if (!amount || amount <= 0) return res.status(400).json({ error: '金額を正しく入力してください' });
+  if (type === 'withdrawal' && amount > s.balance) {
+    return res.status(400).json({ error: '貯金残高を超える金額は引き出せません' });
+  }
+  await pool.query(
+    'INSERT INTO savings_transactions (event_participant_id, amount, type, memo) VALUES ($1, $2, $3, $4)',
+    [s.event_participant_id, amount, type, memo]);
+  const s2 = await getSavings(Number(req.params.id), req.userId);
+  res.status(201).json({ ok: true, balance: s2.balance, savings_goal: s2.savings_goal });
 }));
 
 // イベント履歴：自分が参加した「過去の」イベントを新しい順に。参戦記録・日記の件数も返す
@@ -803,16 +858,39 @@ app.get('/api/oshi/master/:id/gallery', auth, wrap(async (req, res) => {
   res.json(r.rows);
 }));
 
-// 推し詳細ページ（代表画像・ジャンル・登録人数・公式/グッズURL・承認ギャラリー）
+// 推し詳細ページ（表示画像は閲覧者の着せ替え選択を反映・登録人数・公式/グッズURL・承認ギャラリー）
 app.get('/api/oshi/master/:id', auth, wrap(async (req, res) => {
   const m = await pool.query(
     `SELECT m.*, (SELECT COUNT(*)::int FROM oshi o WHERE o.oshi_master_id = m.id) AS registered_count,
-            EXISTS (SELECT 1 FROM oshi o WHERE o.oshi_master_id = m.id AND o.user_id = $1) AS mine
+            EXISTS (SELECT 1 FROM oshi o WHERE o.oshi_master_id = m.id AND o.user_id = $1) AS mine,
+            ${displayImageSql('m.id', 'm.image_url')} AS display_image,
+            (SELECT ud.oshi_image_id FROM user_oshi_display_image ud
+             WHERE ud.user_id = $1 AND ud.oshi_master_id = m.id) AS selected_image_id
      FROM oshi_master m WHERE m.id = $2`, [req.userId, req.params.id]);
   if (!m.rows.length) return res.status(404).json({ error: '見つかりません' });
   const gallery = await pool.query(
     `SELECT id, image_url FROM oshi_images WHERE oshi_master_id = $1 AND status = 'approved' ORDER BY id DESC`, [req.params.id]);
   res.json({ ...m.rows[0], gallery: gallery.rows });
+}));
+
+// 着せ替え：この推しの表示画像として承認済み画像を選ぶ（本人の画面だけに反映。null でデフォルトに戻す）
+app.put('/api/oshi/master/:id/display-image', auth, wrap(async (req, res) => {
+  const masterId = Number(req.params.id);
+  const imageId = req.body.oshi_image_id == null ? null : Number(req.body.oshi_image_id);
+  if (imageId == null) {
+    await pool.query('DELETE FROM user_oshi_display_image WHERE user_id = $1 AND oshi_master_id = $2', [req.userId, masterId]);
+    return res.json({ ok: true, selected_image_id: null });
+  }
+  // 選んだ画像がそのマスターの承認済み画像であることをサーバー側で検証
+  const img = await pool.query(
+    "SELECT 1 FROM oshi_images WHERE id = $1 AND oshi_master_id = $2 AND status = 'approved'", [imageId, masterId]);
+  if (!img.rows.length) return res.status(400).json({ error: '選べる画像ではありません' });
+  await pool.query(
+    `INSERT INTO user_oshi_display_image (user_id, oshi_master_id, oshi_image_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, oshi_master_id) DO UPDATE SET oshi_image_id = EXCLUDED.oshi_image_id, updated_at = now()`,
+    [req.userId, masterId, imageId]);
+  res.json({ ok: true, selected_image_id: imageId });
 }));
 
 // 着せ替え画像を管理者へ申請（アーティスト＝oshi_masterを選んで送信）

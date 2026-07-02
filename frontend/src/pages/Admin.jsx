@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { readFileAsDataUrl, formatDateJa } from '../util'
-import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty, SectionTitle } from '../components/ui'
+import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty, Loading } from '../components/ui'
 
 const emptyEvent = { name: '', artist_id: null, event_date: '', location: '', description: '', image: '' }
 
@@ -16,6 +16,7 @@ export default function Admin() {
   const [eventForm, setEventForm] = useState(null)
   const [oshiForm, setOshiForm] = useState(null)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
   const nav = useNavigate()
 
   const loadEvents = () => api('/admin/events').then(setEvents).catch((e) => setError(e.message))
@@ -23,9 +24,8 @@ export default function Admin() {
   const loadOshi = () => api('/admin/oshi-master').then(setOshiMasters).catch((e) => setError(e.message))
 
   useEffect(() => {
-    loadEvents()
     api('/oshi/browse').then(setMasters).catch(console.error)
-    loadImages(); loadOshi()
+    Promise.allSettled([loadEvents(), loadImages(), loadOshi()]).finally(() => setLoading(false))
   }, [])
 
   const handleEventFile = async (e) => {
@@ -82,6 +82,7 @@ export default function Admin() {
       </div>
 
       {error && <p className="text-wine text-xs">{error}</p>}
+      {loading && <Loading label="読み込み中…" />}
 
       {/* イベント管理 */}
       {tab === 'events' && (
@@ -89,7 +90,7 @@ export default function Admin() {
           <div className="flex justify-end">
             <PrimaryButton onClick={() => setEventForm({ ...emptyEvent })}>＋ イベント作成</PrimaryButton>
           </div>
-          {events.length === 0 && <Card><Empty icon="🎪" message="イベントがありません。作成しましょう。" /></Card>}
+          {!loading && events.length === 0 && <Card><Empty icon="🎪" message="イベントがありません。作成しましょう。" /></Card>}
           {events.map((ev) => (
             <Card key={ev.id}>
               <div className="flex items-start justify-between gap-2">
@@ -114,7 +115,7 @@ export default function Admin() {
       {tab === 'kisekae' && (
         <>
           <p className="text-[11px] text-ink-soft">ユーザーから申請された推し画像を承認・却下します（判定はサーバー側で保存）。</p>
-          {images.length === 0 && <Card><Empty icon="✅" message="審査待ちの画像はありません。" /></Card>}
+          {!loading && images.length === 0 && <Card><Empty icon="✅" message="審査待ちの画像はありません。" /></Card>}
           {images.map((img) => (
             <Card key={img.id}>
               <div className="flex gap-3">
@@ -137,7 +138,7 @@ export default function Admin() {
       {tab === 'oshi' && (
         <>
           <p className="text-[11px] text-ink-soft">公式サイト・グッズページのURLは、情報の正確性のため管理者が登録します。</p>
-          {oshiMasters.length === 0 && <Card><Empty icon="⭐" message="登録された推しがありません。" /></Card>}
+          {!loading && oshiMasters.length === 0 && <Card><Empty icon="⭐" message="登録された推しがありません。" /></Card>}
           {oshiMasters.map((m) => (
             <Card key={m.id}>
               <div className="flex items-center gap-3">

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { formatTime, readFileAsDataUrl, attachmentTypeOf } from '../util'
-import { Avatar, Modal, PrimaryButton, GhostButton } from '../components/ui'
+import { Avatar, Modal, PrimaryButton, GhostButton, Loading } from '../components/ui'
 
 // チャット画面（DM・イベント共通。Socket.ioでリアルタイム＋既読＋添付＋共有アルバム）
 export default function Chat({ user }) {
@@ -14,6 +14,7 @@ export default function Chat({ user }) {
   const [text, setText] = useState('')
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(null) // 送信確認待ちの添付 { url, type, name }
   const bottomRef = useRef(null)
   const fileRef = useRef(null)
@@ -33,6 +34,7 @@ export default function Chat({ user }) {
     api(`/chat/rooms/${rid}/messages`)
       .then((ms) => { setMessages(ms); markRead() })
       .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
 
     const s = getSocket()
     if (s) {
@@ -127,7 +129,8 @@ export default function Chat({ user }) {
 
       {/* メッセージ（この領域だけスクロール） */}
       <div className="flex-1 min-h-0 overflow-y-auto scroll-area px-3 py-3 space-y-2">
-        {messages.length === 0 && <p className="text-center text-ink-soft text-xs py-6">まだメッセージがありません。<br />最初のひとことを送ってみましょう！</p>}
+        {loading && <Loading label="メッセージを読み込み中…" />}
+        {!loading && messages.length === 0 && <p className="text-center text-ink-soft text-xs py-6">まだメッセージがありません。<br />最初のひとことを送ってみましょう！</p>}
         {messages.map((m) => {
           const mine = m.sender_id === user.id
           const readLabel = mine && m.read_count > 0 ? (isDm ? '既読' : `既読 ${m.read_count}`) : null

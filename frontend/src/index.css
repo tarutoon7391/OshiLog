@@ -74,6 +74,19 @@ body {
   );
 }
 
+/* 読み込み中のスタンプ演出（トンっと押される→薄くなるを繰り返す） */
+@keyframes stamp-press {
+  0%   { transform: scale(1.45) rotate(-9deg); opacity: 0; }
+  35%  { transform: scale(0.9) rotate(0deg);   opacity: 1; }
+  50%  { transform: scale(1.06); }
+  65%  { transform: scale(0.98); }
+  100% { transform: scale(1) rotate(0deg);     opacity: 0.2; }
+}
+.stamp-loading {
+  animation: stamp-press 1.2s ease-in-out infinite;
+  transform-origin: center;
+}
+
 /* アプリ内通知トースト（上からスライドイン） */
 @keyframes toast-in {
   from { transform: translateY(-120%); opacity: 0; }

@@ -2,17 +2,18 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { formatDateJa, formatYen, VISIBILITY_MAP } from '../util'
-import { Card, Modal, Empty } from '../components/ui'
+import { Card, Modal, Empty, Loading } from '../components/ui'
 
 // イベント履歴：過去に参加したイベント一覧＋そのイベントの参戦記録・日記
 export default function EventHistory() {
   const [events, setEvents] = useState([])
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
   const [detail, setDetail] = useState(null) // { event, records, diaries }
   const nav = useNavigate()
 
   useEffect(() => {
-    api('/events/history').then(setEvents).catch((e) => setError(e.message))
+    api('/events/history').then(setEvents).catch((e) => setError(e.message)).finally(() => setLoading(false))
   }, [])
 
   const openDetail = async (ev) => {
@@ -31,7 +32,8 @@ export default function EventHistory() {
       <p className="text-[11px] text-ink-soft">これまでに参加した（開催が終わった）イベントの記録です。</p>
       {error && <p className="text-wine text-xs">{error}</p>}
 
-      {events.length === 0 && <Card><Empty icon="🎪" message={'まだ参加済みの過去イベントがありません。'} /></Card>}
+      {loading && <Loading label="履歴を読み込み中…" />}
+      {!loading && events.length === 0 && <Card><Empty icon="🎪" message={'まだ参加済みの過去イベントがありません。'} /></Card>}
 
       {events.map((ev) => (
         <button key={ev.id} onClick={() => openDetail(ev)} className="w-full text-left">
