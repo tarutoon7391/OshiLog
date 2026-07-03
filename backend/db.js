@@ -262,6 +262,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
+-- クライアント（発注者・レビュー担当）用のロール。専用メニュー＋サイト案内AIを使える。
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_client BOOLEAN NOT NULL DEFAULT false;
 
 ALTER TABLE oshi ADD COLUMN IF NOT EXISTS oshi_master_id INTEGER REFERENCES oshi_master(id) ON DELETE SET NULL;
 
@@ -342,6 +344,17 @@ async function migrateAndSeed() {
   } else {
     adminId = admin.rows[0].id;
     if (!admin.rows[0].is_admin) await pool.query("UPDATE users SET is_admin = true WHERE id = $1", [adminId]);
+  }
+
+  // クライアント（発注者・レビュー担当）アカウント（初期シード）。ログインID: client / パスワード: oshilog-client
+  // 専用の「クライアントメニュー」＋サイト案内AIを使える（is_client）。
+  const client = await pool.query("SELECT id, is_client FROM users WHERE username = 'client'");
+  if (!client.rows.length) {
+    const h = await hashPassword('oshilog-client');
+    await pool.query(
+      "INSERT INTO users (username, password_hash, display_name, is_client) VALUES ('client', $1, 'クライアント', true)", [h]);
+  } else if (!client.rows[0].is_client) {
+    await pool.query("UPDATE users SET is_client = true WHERE id = $1", [client.rows[0].id]);
   }
 
   // 旧デモユーザー(demo)にパスワードを設定して引き続きログインできるようにする（パスワード: demo）

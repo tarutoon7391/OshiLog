@@ -76,7 +76,7 @@ app.post('/api/register', wrap(async (req, res) => {
   if (dup.rows.length) return res.status(409).json({ error: 'このユーザーIDは既に使われています' });
   const hash = await hashPassword(password);
   const r = await pool.query(
-    'INSERT INTO users (username, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id, username, display_name, avatar, bio, is_admin, is_public',
+    'INSERT INTO users (username, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id, username, display_name, avatar, bio, is_admin, is_client, is_public',
     [username, hash, displayName]);
   const user = r.rows[0];
   res.status(201).json({ user, token: signToken(user.id) });
@@ -92,13 +92,13 @@ app.post('/api/login', wrap(async (req, res) => {
   const ok = await verifyPassword(password, r.rows[0].password_hash);
   if (!ok) return res.status(401).json({ error: 'ユーザーIDまたはパスワードが違います' });
   const u = r.rows[0];
-  const user = { id: u.id, username: u.username, display_name: u.display_name, avatar: u.avatar, bio: u.bio, is_admin: u.is_admin, is_public: u.is_public };
+  const user = { id: u.id, username: u.username, display_name: u.display_name, avatar: u.avatar, bio: u.bio, is_admin: u.is_admin, is_client: u.is_client, is_public: u.is_public };
   res.json({ user, token: signToken(user.id) });
 }));
 
 app.get('/api/me', auth, wrap(async (req, res) => {
   const r = await pool.query(
-    'SELECT id, username, display_name, avatar, bio, is_admin, is_public FROM users WHERE id = $1', [req.userId]);
+    'SELECT id, username, display_name, avatar, bio, is_admin, is_client, is_public FROM users WHERE id = $1', [req.userId]);
   if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
   res.json(r.rows[0]);
 }));
@@ -108,7 +108,7 @@ app.put('/api/me', auth, wrap(async (req, res) => {
   const r = await pool.query(
     `UPDATE users SET display_name = COALESCE($1, display_name), avatar = $2, bio = $3,
             is_public = COALESCE($4, is_public), updated_at = now()
-     WHERE id = $5 RETURNING id, username, display_name, avatar, bio, is_admin, is_public`,
+     WHERE id = $5 RETURNING id, username, display_name, avatar, bio, is_admin, is_client, is_public`,
     [display_name ? String(display_name).slice(0, 20) : null, avatar || null,
      bio ? String(bio).slice(0, 200) : null,
      typeof is_public === 'boolean' ? is_public : null, req.userId]);
@@ -803,6 +803,17 @@ app.post('/api/events/:id/savings/transactions', auth, wrap(async (req, res) => 
 // 貯金サポートAIに相談する。現在の貯金額は「貯金残高（getSavings）」を渡す（参戦記録の合計は使わない）。
 app.get('/api/ai/status', auth, wrap(async (req, res) => {
   res.json({ enabled: true, ai: ai.isConfigured(), remaining: ai.remaining(req.userId), daily_limit: ai.DAILY_LIMIT });
+}));
+
+// クライアントメニューのサイト案内AI（クライアント／管理者専用・質問回数の制限なし）
+app.post('/api/assistant/site', auth, wrap(async (req, res) => {
+  const u = await pool.query('SELECT is_client, is_admin FROM users WHERE id = $1', [req.userId]);
+  if (!u.rows.length || !(u.rows[0].is_client || u.rows[0].is_admin)) {
+    return res.status(403).json({ error: 'この機能はクライアント専用です' });
+  }
+  const messages = Array.isArray(req.body.messages) ? req.body.messages : [];
+  const result = await ai.siteAssistant(messages);
+  res.json(result);
 }));
 
 app.post('/api/events/:id/savings/ai', auth, wrap(async (req, res) => {
