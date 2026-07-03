@@ -61,7 +61,7 @@ export default function App() {
           <Route path="/diary" element={<Diary />} />
           <Route path="/profile" element={<Profile user={user} onLogout={handleLogout} onUpdate={refreshUser} />} />
           <Route path="/admin" element={user.is_admin ? <Admin /> : <Navigate to="/" replace />} />
-          <Route path="/client" element={(user.is_client || user.is_admin) ? <ClientMenu /> : <Navigate to="/" replace />} />
+          <Route path="/guide" element={<ClientMenu />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>

@@ -805,12 +805,8 @@ app.get('/api/ai/status', auth, wrap(async (req, res) => {
   res.json({ enabled: true, ai: ai.isConfigured(), remaining: ai.remaining(req.userId), daily_limit: ai.DAILY_LIMIT });
 }));
 
-// クライアントメニューのサイト案内AI（クライアント／管理者専用・質問回数の制限なし）
+// サイト案内AI（全ログインユーザーが利用可・質問回数の制限なし）
 app.post('/api/assistant/site', auth, wrap(async (req, res) => {
-  const u = await pool.query('SELECT is_client, is_admin FROM users WHERE id = $1', [req.userId]);
-  if (!u.rows.length || !(u.rows[0].is_client || u.rows[0].is_admin)) {
-    return res.status(403).json({ error: 'この機能はクライアント専用です' });
-  }
   const messages = Array.isArray(req.body.messages) ? req.body.messages : [];
   const result = await ai.siteAssistant(messages);
   res.json(result);
