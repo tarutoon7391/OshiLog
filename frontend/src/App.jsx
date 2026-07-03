@@ -17,6 +17,7 @@ import Posts from './pages/Posts.jsx'
 import Diary from './pages/Diary.jsx'
 import Profile from './pages/Profile.jsx'
 import Admin from './pages/Admin.jsx'
+import ClientMenu from './pages/ClientMenu.jsx'
 import OshiDetail from './pages/OshiDetail.jsx'
 import EventHistory from './pages/EventHistory.jsx'
 import AlbumView from './pages/AlbumView.jsx'
@@ -60,6 +61,7 @@ export default function App() {
           <Route path="/diary" element={<Diary />} />
           <Route path="/profile" element={<Profile user={user} onLogout={handleLogout} onUpdate={refreshUser} />} />
           <Route path="/admin" element={user.is_admin ? <Admin /> : <Navigate to="/" replace />} />
+          <Route path="/client" element={(user.is_client || user.is_admin) ? <ClientMenu /> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>
