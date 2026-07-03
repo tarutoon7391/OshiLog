@@ -12,14 +12,14 @@ const tabs = [
   { to: '/friends', icon: '👥', label: '推し友' },
   { to: '/posts', icon: '✍️', label: 'つぶやき' },
 ]
-// 管理者だけフッターに「管理」タブ、クライアントだけ「案内（ガイドAI）」タブを追加
+// 全員が使えるサイト案内AI「案内」タブ。管理者だけ「管理」タブを追加。
+const guideTab = { to: '/guide', icon: '💬', label: '案内' }
 const adminTab = { to: '/admin', icon: '🛠', label: '管理' }
-const clientTab = { to: '/client', icon: '💬', label: '案内' }
 
 // ヘッダー＋ボトムナビ固定・中央のみスクロールする共通レイアウト
 export default function Layout({ user, children }) {
   const nav = useNavigate()
-  const navTabs = [...tabs, ...(user.is_admin ? [adminTab] : []), ...(user.is_client ? [clientTab] : [])]
+  const navTabs = [...tabs, guideTab, ...(user.is_admin ? [adminTab] : [])]
   return (
     <div className="h-[100dvh] w-full flex justify-center bg-paper">
       <div className="w-full max-w-md h-full flex flex-col bg-paper/40 shadow-xl relative overflow-hidden">

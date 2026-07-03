@@ -32,8 +32,8 @@ export default function ClientMenu() {
   return (
     <div className="space-y-3">
       <div>
-        <h2 className="font-bold text-lg text-wine">クライアントメニュー</h2>
-        <p className="text-[11px] text-ink-soft mt-0.5">このサイトについて何でも答えるAIガイドです（質問回数の制限なし）。</p>
+        <h2 className="font-bold text-lg text-wine">推しログ ガイド</h2>
+        <p className="text-[11px] text-ink-soft mt-0.5">このアプリの使い方や機能について、何でも聞けるAIです（質問回数の制限なし）。</p>
       </div>
 
       {/* チャット表示 */}
