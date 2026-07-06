@@ -91,6 +91,7 @@ export default function Posts({ user }) {
       {loading && <Loading label="つぶやきを読み込み中…" />}
       {!loading && list.length === 0 && <Card><Empty icon="✍️" message={'まだつぶやきがありません。\n推しへの想いを残しましょう！'} /></Card>}
 
+      <div className="space-y-3 stagger">
       {list.map((p) => {
         const v = VISIBILITY_MAP[p.visibility]
         const mine = p.user_id === user.id
@@ -117,6 +118,7 @@ export default function Posts({ user }) {
           </Card>
         )
       })}
+      </div>
     </div>
   )
 }

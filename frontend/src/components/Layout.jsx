@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { Avatar } from './ui'
 import PullToRefresh from './PullToRefresh.jsx'
 
@@ -14,6 +14,7 @@ const tabs = [
 // ヘッダー＋ボトムナビ固定・中央のみスクロールする共通レイアウト
 export default function Layout({ user, children }) {
   const nav = useNavigate()
+  const location = useLocation()
   return (
     <div className="h-[100dvh] w-full flex justify-center bg-paper">
       <div className="w-full max-w-md h-full flex flex-col bg-paper/40 shadow-xl relative overflow-hidden">
@@ -26,17 +27,21 @@ export default function Layout({ user, children }) {
           </button>
         </header>
 
-        {/* スクロールするコンテンツ領域（ここだけがスクロール／上端で引っ張ると更新） */}
-        <PullToRefresh className="flex-1 min-h-0 scroll-area">{children}</PullToRefresh>
+        {/* スクロールするコンテンツ領域（ここだけがスクロール／上端で引っ張ると更新）。
+            ページ遷移のたびに便箋を1枚重ねるようにふわっと表示する */}
+        <PullToRefresh className="flex-1 min-h-0 scroll-area">
+          <div key={location.pathname} className="page-in">{children}</div>
+        </PullToRefresh>
 
         {/* AI相談のFAB：判子風の丸ボタン。スクロールしても右下に固定。
             飛び先はサイト案内AI（旧・案内タブ）。貯金AIは貯金画面内の導線から */}
         <button
           onClick={() => nav('/guide')}
           aria-label="サイト案内AIに相談"
-          className="absolute right-3 bottom-[calc(env(safe-area-inset-bottom)+4.25rem)] z-30 w-14 h-14 rounded-full bg-wine text-white shadow-lg active:scale-95 transition-transform flex items-center justify-center"
+          className="press absolute right-3 bottom-[calc(env(safe-area-inset-bottom)+4.25rem)] z-30 w-14 h-14 rounded-full bg-wine text-white shadow-lg flex items-center justify-center"
         >
-          <span className="w-12 h-12 rounded-full border-2 border-white/70 flex flex-col items-center justify-center leading-none">
+          {/* 内側の輪は箔押しゴールド（判子＋金の箔押しイメージ） */}
+          <span className="w-12 h-12 rounded-full border-2 border-gold/80 flex flex-col items-center justify-center leading-none">
             <span className="text-base">💬</span>
             <span className="text-[9px] font-bold mt-0.5">AI相談</span>
           </span>
@@ -50,11 +55,17 @@ export default function Layout({ user, children }) {
               to={t.to}
               end={t.to === '/'}
               className={({ isActive }) =>
-                `flex flex-col items-center py-2 text-[10px] ${isActive ? 'text-wine font-bold' : 'text-ink-soft'}`
+                `flex flex-col items-center py-1.5 text-[10px] ${isActive ? 'text-wine font-bold' : 'text-ink-soft'}`
               }
             >
-              <span className="text-lg leading-none">{t.icon}</span>
-              <span className="mt-0.5">{t.label}</span>
+              {({ isActive }) => (
+                <>
+                  {/* 選択中タブの上に、マステを貼ったようなゴールドの小さなバー */}
+                  <span className={`h-[3px] w-7 rounded-full mb-1 transition-colors ${isActive ? 'bg-gold/80' : 'bg-transparent'}`} />
+                  <span className="text-lg leading-none">{t.icon}</span>
+                  <span className="mt-0.5">{t.label}</span>
+                </>
+              )}
             </NavLink>
           ))}
         </nav>

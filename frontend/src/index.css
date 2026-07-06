@@ -5,11 +5,14 @@
   --color-paper: #e8dfce;        /* 背景ベージュ */
   --color-paper-card: #fbf7ee;   /* カード（紙）色 */
   --color-paper-line: #d8cbb0;   /* 罫線色 */
-  --color-wine: #8b3a4a;         /* アクセント（ワインレッド） */
-  --color-wine-dark: #6e2c39;
+  --color-wine: #96324e;         /* アクセント（第10弾で彩度を少し強めたワインレッド） */
+  --color-wine-dark: #78243c;
   --color-ink: #3a2e2a;          /* 文字（濃い茶） */
   --color-ink-soft: #8a7a6b;     /* 補助文字 */
   --color-tag: #c8b7a0;          /* タグ・枠 */
+  /* 第10弾：箔押し・マステ風のワンポイント用ゴールド（マットな金。蛍光ではない） */
+  --color-gold: #b9962e;
+  --color-gold-soft: #e9dcae;
 }
 
 html, body, #root {
@@ -46,12 +49,16 @@ body {
 .scroll-area::-webkit-scrollbar { width: 6px; }
 .scroll-area::-webkit-scrollbar-thumb { background: var(--color-tag); border-radius: 3px; }
 
-/* ポラロイド風フレーム（推しタイル用） */
+/* ポラロイド風フレーム（推しタイル用）。ホバーで少し浮く（写真を手に取る感じ） */
 .polaroid {
   background: #fffdf8;
   padding: 6px 6px 26px 6px;
   box-shadow: 0 2px 6px rgba(58, 46, 42, 0.18);
   border: 1px solid #efe7d6;
+  transition: box-shadow 0.18s ease;
+}
+@media (hover: hover) {
+  .polaroid:hover { box-shadow: 0 8px 16px rgba(58, 46, 42, 0.26); }
 }
 
 /* スタンプ風の丸囲み（カレンダーの選択日） */
@@ -87,7 +94,7 @@ body {
   transform-origin: center;
 }
 
-/* アプリ内通知トースト（上からスライドイン） */
+/* アプリ内通知トースト（上からスライドイン・消えるときは上へ戻る） */
 @keyframes toast-in {
   from { transform: translateY(-120%); opacity: 0; }
   to   { transform: translateY(0);     opacity: 1; }
@@ -95,6 +102,65 @@ body {
 .toast-in {
   animation: toast-in 0.3s ease-out;
 }
+@keyframes toast-out {
+  from { transform: translateY(0);     opacity: 1; }
+  to   { transform: translateY(-120%); opacity: 0; }
+}
+.toast-out {
+  animation: toast-out 0.25s ease-in forwards;
+}
+
+/* ===== 第10弾：全体のマイクロインタラクション（transform/opacityのみで軽量に） ===== */
+
+/* ふわっと出る（一覧・カードの登場。紙を1枚ずつ置いていくイメージ） */
+@keyframes fade-up {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+/* fill-modeはbackwards：遅延中はfrom状態で隠し、終了後は要素本来のスタイル
+   （ポラロイドの傾きなどインラインtransform）へ戻す */
+.fade-up { animation: fade-up 0.3s ease-out backwards; }
+/* 一覧の子要素を少しずつずらして出す */
+.stagger > * { animation: fade-up 0.3s ease-out backwards; }
+.stagger > *:nth-child(1)  { animation-delay: 0.02s; }
+.stagger > *:nth-child(2)  { animation-delay: 0.05s; }
+.stagger > *:nth-child(3)  { animation-delay: 0.08s; }
+.stagger > *:nth-child(4)  { animation-delay: 0.11s; }
+.stagger > *:nth-child(5)  { animation-delay: 0.14s; }
+.stagger > *:nth-child(6)  { animation-delay: 0.17s; }
+.stagger > *:nth-child(7)  { animation-delay: 0.20s; }
+.stagger > *:nth-child(8)  { animation-delay: 0.23s; }
+.stagger > *:nth-child(9)  { animation-delay: 0.26s; }
+.stagger > *:nth-child(10) { animation-delay: 0.29s; }
+.stagger > *:nth-child(n+11) { animation-delay: 0.32s; }
+
+/* 押した感（ボタン・タップ要素） */
+.press { transition: transform 0.12s ease, filter 0.15s ease; }
+.press:active { transform: scale(0.96); }
+@media (hover: hover) { .press:hover { filter: brightness(1.06); } }
+
+/* モーダルが下からせり上がる（手帳に紙を差し込むイメージ） */
+@keyframes sheet-up {
+  from { transform: translateY(28px); opacity: 0.4; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.sheet-up { animation: sheet-up 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+/* 画面遷移：便箋を1枚重ねるようなフェード＋わずかな浮き上がり */
+@keyframes page-in {
+  from { transform: translateY(6px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+.page-in { animation: page-in 0.22s ease-out; }
+
+/* 参戦記録の判子演出（1回だけトンと押される） */
+@keyframes stamp-once {
+  0%   { transform: scale(1.6) rotate(-14deg); opacity: 0; }
+  45%  { transform: scale(0.94) rotate(-6deg); opacity: 1; }
+  60%  { transform: scale(1.05) rotate(-6deg); }
+  100% { transform: scale(1) rotate(-6deg);    opacity: 1; }
+}
+.stamp-once { animation: stamp-once 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 
 /* 第7弾：カレンダーの階層ズーム遷移。
    タップした月・日付を起点(transform-origin)に拡大／縮小して次の階層へつなぐ。
@@ -115,4 +181,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .cal-zoom-in, .cal-zoom-out { animation: none; }
   .cal-day-panel { transition: none; }
+  .fade-up, .stagger > *, .sheet-up, .page-in, .stamp-once, .toast-in, .toast-out { animation: none; }
+  .press, .press:active { transition: none; transform: none; }
 }

@@ -78,7 +78,7 @@ export default function SavingsSupport() {
           {/* 貯金目標の一覧（詳細な入出金は各イベントのカードから） */}
           <div>
             <p className="text-sm font-bold text-wine mb-2">貯金目標一覧</p>
-            <div className="space-y-2">
+            <div className="space-y-2 stagger">
               {events.map((e) => (
                 <Card key={e.id} className="p-3">
                   <button onClick={() => nav(`/events?focus=${e.id}`)} className="w-full text-left">

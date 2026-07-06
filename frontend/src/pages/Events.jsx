@@ -87,6 +87,7 @@ export default function Events({ user }) {
 
       {events.length === 0 && <Card><Empty icon="🎪" message={'公開中のイベントはありません。'} /></Card>}
 
+      <div className="space-y-3 stagger">
       {events.map((ev) => {
         const d = daysUntil(ev.event_date)
         const isPast = ev.event_date < now
@@ -155,6 +156,7 @@ export default function Events({ user }) {
           </div>
         )
       })}
+      </div>
 
       {/* 貯金目標の設定 */}
       {goalForm && (

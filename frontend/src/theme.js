@@ -2,7 +2,8 @@
 // Tailwind v4 の @theme 変数（--color-wine など）を実行時に上書きして全体に反映する。
 // 紙のベース（背景ベージュ・文字色）は読みやすさのため共通のまま、アクセント色だけ差し替える。
 export const THEMES = [
-  { key: 'wine', label: 'ワイン', accent: '#8b3a4a', dark: '#6e2c39', tag: '#c8b7a0' },
+  // 第10弾：既定のワインは彩度を少し強めて「特別感」を出す（index.cssの既定値と同じ）
+  { key: 'wine', label: 'ワイン', accent: '#96324e', dark: '#78243c', tag: '#c8b7a0' },
   { key: 'blue', label: 'スモークブルー', accent: '#5c7a94', dark: '#47617a', tag: '#adbccb' },
   { key: 'green', label: 'セージグリーン', accent: '#5e7a5b', dark: '#4a624a', tag: '#b3c0a6' },
   { key: 'mauve', label: 'モーヴ', accent: '#7d5f8b', dark: '#634a70', tag: '#bfb2cb' },

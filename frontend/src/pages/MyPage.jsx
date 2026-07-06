@@ -38,7 +38,7 @@ export default function MyPage({ user }) {
 
       {/* 機能への導線一覧 */}
       <Card className="p-2">
-        <div className="divide-y divide-paper-line/60">
+        <div className="divide-y divide-paper-line/60 stagger">
           {items.map((it) => (
             <button key={it.label} onClick={() => nav(it.to)}
               className="w-full flex items-center gap-3 px-2 py-3 text-left">

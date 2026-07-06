@@ -86,10 +86,10 @@ export default function OshiBrowse() {
 
             {/* タップで展開するポラロイドタイル一覧 */}
             {open && (
-              <div className="grid grid-cols-2 gap-3 mt-3">
+              <div className="grid grid-cols-2 gap-3 mt-3 stagger">
                 {list.map((m, i) => (
                   <div key={m.id} className="polaroid rounded-sm" style={{ transform: `rotate(${i % 2 ? 1.3 : -1.3}deg)` }}>
-                    <button onClick={() => nav(`/oshi/${m.id}`)} className="aspect-square w-full rounded-sm overflow-hidden flex items-center justify-center"
+                    <button onClick={() => nav(`/oshi/${m.id}`)} className="press aspect-square w-full rounded-sm overflow-hidden flex items-center justify-center"
                       style={{ backgroundColor: m.display_image ? '#fff' : '#e8dfce' }}>
                       {m.display_image
                         ? <img src={m.display_image} alt={m.name} className="w-full h-full object-cover" />

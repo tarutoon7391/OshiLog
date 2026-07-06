@@ -55,7 +55,7 @@ export default function Goods() {
       {loading && <Loading label="グッズを読み込み中…" />}
       {!loading && filtered.length === 0 && <Card><Empty icon="🎁" message={'グッズがまだありません。\nアクスタやCDを登録してコレクションを作りましょう！'} /></Card>}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 stagger">
         {filtered.map((g) => (
           <div key={g.id} className="polaroid rounded-sm">
             <div className="aspect-square rounded-sm overflow-hidden">

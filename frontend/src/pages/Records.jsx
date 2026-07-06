@@ -20,6 +20,7 @@ export default function Records() {
   const [form, setForm] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [stamped, setStamped] = useState(false) // 登録直後の判子演出
 
   const reload = () => {
     api(`/records?month=${month}`).then(setList).catch(console.error).finally(() => setLoading(false))
@@ -33,8 +34,13 @@ export default function Records() {
 
   const save = async (e) => {
     e.preventDefault(); setError('')
-    try { await api('/records', { method: 'POST', body: form }); setForm(null); reload() }
-    catch (err) { setError(err.message) }
+    try {
+      await api('/records', { method: 'POST', body: form })
+      setForm(null); reload()
+      // 記録できた合図として「参戦記録」の判子をトンと押す
+      setStamped(true)
+      setTimeout(() => setStamped(false), 1100)
+    } catch (err) { setError(err.message) }
   }
   const remove = async (r) => {
     if (!confirm(`「${r.title}」を削除しますか？`)) return
@@ -71,6 +77,7 @@ export default function Records() {
           {loading && <Loading label="記録を読み込み中…" />}
           {!loading && list.length === 0 && <Card><Empty icon="💰" message={'この月の記録はありません。\nライブ参戦やグッズ購入を記録しましょう！'} /></Card>}
 
+          <div className="space-y-3 stagger">
           {list.map((r) => (
             <Card key={r.id} className="flex items-center gap-3">
               <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: r.oshi_color || '#c8b7a0' }} />
@@ -84,7 +91,19 @@ export default function Records() {
               <button onClick={() => remove(r)} className="text-ink-soft/50 text-lg shrink-0 px-1">×</button>
             </Card>
           ))}
+          </div>
         </>
+      )}
+
+      {/* 登録直後の判子演出（画面中央にトンと押されて消える） */}
+      {stamped && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+          <div className="stamp-once w-36 h-36 rounded-full border-4 border-wine/85 bg-paper-card/70 flex flex-col items-center justify-center"
+            style={{ boxShadow: 'inset 0 0 0 3px rgba(150, 50, 78, 0.35)' }}>
+            <span className="text-3xl font-black text-wine tracking-widest">参戦</span>
+            <span className="text-xl font-bold text-wine tracking-[0.3em] mt-1">記録!</span>
+          </div>
+        </div>
       )}
 
       {tab === 'chart' && stats && (

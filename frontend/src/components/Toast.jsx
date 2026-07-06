@@ -16,7 +16,8 @@ export default function PushToasts() {
       if (!d || d.type !== 'push') return
       const id = ++idRef.current
       setToasts((prev) => [...prev, { id, title: d.title || '推しログ', body: d.body || '', url: d.url || '/' }])
-      // 5秒で自動的に消す
+      // 5秒で自動的に消す（消える直前に上へ戻る退場アニメーションを入れる）
+      setTimeout(() => setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t))), 4700)
       setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 5000)
     }
     navigator.serviceWorker.addEventListener('message', onMessage)
@@ -37,7 +38,7 @@ export default function PushToasts() {
         <button
           key={t.id}
           onClick={() => open(t)}
-          className="toast-in pointer-events-auto w-full text-left bg-paper-card border border-paper-line border-l-4 border-l-wine rounded-xl shadow-lg px-3 py-2.5"
+          className={`${t.leaving ? 'toast-out' : 'toast-in'} pointer-events-auto w-full text-left bg-paper-card border border-paper-line border-l-4 border-l-wine rounded-xl shadow-lg px-3 py-2.5`}
         >
           <p className="text-sm font-bold text-ink truncate">{t.title}</p>
           {t.body && <p className="text-xs text-ink-soft mt-0.5 line-clamp-2 break-words">{t.body}</p>}

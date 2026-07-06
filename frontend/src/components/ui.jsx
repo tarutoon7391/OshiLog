@@ -51,7 +51,7 @@ export function Modal({ title, onClose, children }) {
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40" onClick={onClose}>
       <div
-        className="w-full max-w-md bg-paper-card rounded-t-3xl px-5 pt-5 pb-[calc(env(safe-area-inset-bottom)+2rem)] max-h-[88vh] scroll-area"
+        className="sheet-up w-full max-w-md bg-paper-card rounded-t-3xl px-5 pt-5 pb-[calc(env(safe-area-inset-bottom)+2rem)] max-h-[88vh] scroll-area"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -86,11 +86,11 @@ export function OshiSelect({ oshiList, value, onChange, allowEmpty = true }) {
   )
 }
 
-// ワインレッドの主ボタン
+// ワインレッドの主ボタン（押すと軽く沈む）
 export function PrimaryButton({ children, className = '', ...props }) {
   return (
     <button
-      className={`bg-wine hover:bg-wine-dark text-white font-bold rounded-xl px-4 py-2.5 text-sm shadow disabled:opacity-40 transition-colors ${className}`}
+      className={`press bg-wine hover:bg-wine-dark text-white font-bold rounded-xl px-4 py-2.5 text-sm shadow disabled:opacity-40 transition-colors ${className}`}
       {...props}
     >
       {children}
@@ -98,11 +98,11 @@ export function PrimaryButton({ children, className = '', ...props }) {
   )
 }
 
-// 枠線だけのボタン
+// 枠線だけのボタン（押すと軽く沈む）
 export function GhostButton({ children, className = '', ...props }) {
   return (
     <button
-      className={`border border-wine/50 text-wine font-medium rounded-xl px-3 py-1.5 text-sm disabled:opacity-40 ${className}`}
+      className={`press border border-wine/50 text-wine font-medium rounded-xl px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-wine/5 transition-colors ${className}`}
       {...props}
     >
       {children}
@@ -129,10 +129,10 @@ export function Loading({ label = '読み込み中…', className = '' }) {
   )
 }
 
-// セクション見出し（手帳のマスキングテープ風）
+// セクション見出し（手帳のマスキングテープ風。左端に箔押しゴールドのワンポイント）
 export function SectionTitle({ children }) {
   return (
-    <div className="inline-block bg-wine/10 text-wine text-xs font-bold rounded px-2 py-1 mb-2">{children}</div>
+    <div className="inline-block bg-wine/10 text-wine text-xs font-bold rounded px-2 py-1 mb-2 -rotate-1 border-l-[3px] border-gold/80">{children}</div>
   )
 }
 
@@ -148,12 +148,15 @@ export function Toggle({ checked, onChange, label }) {
   )
 }
 
-// 目標額に対する進捗バー
+// 目標額に対する進捗バー（伸びるアニメーション＋先端に向かって箔押しゴールドのグラデーション）
 export function ProgressBar({ value, max, className = '' }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
   return (
     <div className={`w-full bg-paper rounded-full h-2.5 overflow-hidden border border-paper-line/60 ${className}`}>
-      <div className="h-full bg-wine rounded-full transition-all" style={{ width: `${pct}%` }} />
+      <div
+        className="h-full rounded-full transition-[width] duration-700 ease-out"
+        style={{ width: `${pct}%`, background: 'linear-gradient(90deg, var(--color-wine) 55%, var(--color-gold))' }}
+      />
     </div>
   )
 }
