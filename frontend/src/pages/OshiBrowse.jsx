@@ -58,6 +58,12 @@ export default function OshiBrowse() {
         <PrimaryButton onClick={() => setForm({ ...emptyForm })}>＋ 登録</PrimaryButton>
       </div>
 
+      {/* 第9弾：推しタブをハブ化（ボトムナビから外したイベントへの導線をここに置く） */}
+      <div className="grid grid-cols-2 gap-2">
+        <GhostButton onClick={() => nav('/events')}>🎪 イベント一覧</GhostButton>
+        <GhostButton onClick={() => nav('/history')}>🕘 イベント履歴</GhostButton>
+      </div>
+
       {loading && <Loading label="推しを読み込み中…" />}
       {!loading && masters.length === 0 && (
         <Card><Empty icon="⭐" message={'まだ誰も推しを登録していません。\n最初の登録者になりましょう！'} /></Card>

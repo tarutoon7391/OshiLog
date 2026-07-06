@@ -17,6 +17,9 @@ import Chat from './pages/Chat.jsx'
 import Posts from './pages/Posts.jsx'
 import Diary from './pages/Diary.jsx'
 import Profile from './pages/Profile.jsx'
+import MyPage from './pages/MyPage.jsx'
+import SavingsSupport from './pages/SavingsSupport.jsx'
+import Blocks from './pages/Blocks.jsx'
 import Admin from './pages/Admin.jsx'
 import ClientMenu from './pages/ClientMenu.jsx'
 import OshiDetail from './pages/OshiDetail.jsx'
@@ -61,6 +64,9 @@ export default function App() {
           <Route path="/album/:roomId" element={<AlbumView user={user} />} />
           <Route path="/posts" element={<Posts user={user} />} />
           <Route path="/diary" element={<Diary />} />
+          <Route path="/mypage" element={<MyPage user={user} />} />
+          <Route path="/savings" element={<SavingsSupport />} />
+          <Route path="/blocks" element={<Blocks />} />
           <Route path="/profile" element={<Profile user={user} onLogout={handleLogout} onUpdate={refreshUser} />} />
           <Route path="/admin" element={user.is_admin ? <Admin /> : <Navigate to="/" replace />} />
           <Route path="/guide" element={<ClientMenu />} />

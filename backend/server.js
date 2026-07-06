@@ -618,6 +618,15 @@ app.post('/api/users/:id/unblock', auth, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// 第9弾：自分がブロック中のユーザー一覧（マイページのブロックリスト用・読み取りのみ）
+app.get('/api/blocks', auth, wrap(async (req, res) => {
+  const r = await pool.query(
+    `SELECT u.id, u.username, u.display_name, u.avatar, b.created_at
+     FROM blocks b JOIN users u ON u.id = b.blocked_id
+     WHERE b.blocker_id = $1 ORDER BY b.created_at DESC`, [req.userId]);
+  res.json(r.rows);
+}));
+
 // =========================================================
 // チャット（DM・イベント共通）
 // =========================================================
