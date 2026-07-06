@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { getUser, saveAuth, clearAuth, rememberAccount } from './api'
 import { connectSocket, disconnectSocket } from './socket'
+import { resyncPush } from './pwa'
 import Layout from './components/Layout.jsx'
 import PushToasts from './components/Toast.jsx'
 import Login from './pages/Login.jsx'
@@ -27,8 +28,9 @@ export default function App() {
   const [user, setUser] = useState(getUser)
 
   // ログイン中はSocket.ioへ接続、ログアウトで切断
+  // あわせて失効している可能性のあるプッシュ購読を自動修復する
   useEffect(() => {
-    if (user) connectSocket()
+    if (user) { connectSocket(); resyncPush() }
     else disconnectSocket()
   }, [user])
 

@@ -53,3 +53,23 @@ export async function enablePush() {
 export function pushPermission() {
   return typeof Notification !== 'undefined' ? Notification.permission : 'default'
 }
+
+// 起動時の購読自動修復：許可済みなら購読を取り直してサーバーへ再登録する。
+// iOSでは通知を表示しないプッシュが続くと購読だけが自動失効する（許可は残る）ため、
+// アプリを開いたタイミングで黙って再購読し、通知が届く状態へ戻す。
+export async function resyncPush() {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+    const reg = await navigator.serviceWorker.ready
+    const { publicKey } = await api('/push/vapid')
+    if (!publicKey) return
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    })
+    await api('/push/subscribe', { method: 'POST', body: { subscription: sub } })
+  } catch (e) {
+    console.warn('プッシュ購読の再同期に失敗:', e)
+  }
+}

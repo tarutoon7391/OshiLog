@@ -37,6 +37,10 @@ async function sendToUsers(pool, userIds, payload) {
     } catch (err) {
       if (err.statusCode === 410 || err.statusCode === 404) {
         await pool.query('DELETE FROM push_subscriptions WHERE id = $1', [s.id]);
+        console.log(`失効したプッシュ購読を削除: id=${s.id}`);
+      } else {
+        // 失効以外の失敗（VAPID不整合・ネットワーク等）は原因調査できるようログに残す
+        console.error(`プッシュ送信エラー: id=${s.id} status=${err.statusCode || '-'} ${err.message}`);
       }
     }
   }));

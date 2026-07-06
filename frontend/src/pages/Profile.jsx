@@ -125,7 +125,15 @@ export default function Profile({ user, onLogout, onUpdate }) {
           推し友のメッセージ・申請、参加イベントのリマインドをお知らせします。
         </p>
         {perm === 'granted'
-          ? <p className="text-sm text-[#5e7a5b]">🔔 通知はオンです</p>
+          ? (
+            <div>
+              <p className="text-sm text-[#5e7a5b]">🔔 通知はオンです</p>
+              {/* 許可は残ったまま購読だけが失効することがある（特にiOS）ため再設定の手段を残す */}
+              <button type="button" onClick={turnOnPush} className="text-[11px] text-ink-soft underline mt-1">
+                通知が届かない場合はここをタップして再設定
+              </button>
+            </div>
+          )
           : <PrimaryButton onClick={turnOnPush}>通知をオンにする</PrimaryButton>}
         {pushMsg && <p className="text-[11px] text-ink-soft mt-2">{pushMsg}</p>}
         {isIOS() && !isStandalone() && (
