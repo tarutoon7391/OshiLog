@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../api'
 import { EVENT_TYPES, EVENT_ICONS, todayStr, formatDateJa, formatHm } from '../util'
 import { Modal, Field, inputClass, OshiSelect, PrimaryButton, GhostButton, Empty, Avatar, Loading } from '../components/ui'
@@ -36,13 +37,60 @@ const byTime = (a, b) => {
   return a.start_time.localeCompare(b.start_time)
 }
 
-// iPhoneカレンダー準拠：縦スクロールの連続月ビュー＋日付タップ選択＋ダブルタップで1日詳細
+// iPhoneカレンダー準拠の戻るボタン用シェブロン（色は親要素のcurrentColor＝ワインレッド）
+function Chevron() {
+  return (
+    <svg width="11" height="18" viewBox="0 0 12 20" fill="none" aria-hidden="true">
+      <path d="M10 2 L3 10 L10 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+// 1日詳細のズームパネル：タップした日付セルの位置(origin)から拡大して開き、
+// 戻るときは同じ位置へ縮小して閉じる（iPhoneカレンダーの遷移演出を軽量に再現）
+function DayZoomPanel({ backLabel, title, origin, onClose, children }) {
+  const [phase, setPhase] = useState('enter') // enter（縮小状態）→ open → closing
+  useEffect(() => {
+    // 初期の縮小状態を一度描画してからopenに切り替え、transitionを発火させる
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => setPhase('open')))
+    return () => cancelAnimationFrame(id)
+  }, [])
+  const close = () => { setPhase('closing'); setTimeout(onClose, 240) }
+  const shrunk = phase !== 'open'
+  return createPortal(
+    <div className="fixed inset-0 z-50">
+      <div className={`absolute inset-0 bg-ink/40 transition-opacity duration-200 ${shrunk ? 'opacity-0' : 'opacity-100'}`} onClick={close} />
+      <div className="cal-day-panel absolute inset-0 flex justify-center pointer-events-none"
+        style={{ transformOrigin: origin || '50% 35%', transform: shrunk ? 'scale(0.12)' : 'scale(1)', opacity: shrunk ? 0 : 1 }}>
+        <div className="pointer-events-auto w-full max-w-md bg-paper flex flex-col h-full shadow-xl">
+          <div className="px-2 pt-[calc(env(safe-area-inset-top)+0.5rem)] shrink-0">
+            <button onClick={close} className="flex items-center gap-1 text-wine font-medium text-[15px] py-2 pl-1 pr-4">
+              <Chevron /><span>{backLabel}</span>
+            </button>
+          </div>
+          <div className="px-4 pb-[calc(env(safe-area-inset-bottom)+5rem)] overflow-y-auto scroll-area flex-1">
+            <h2 className="font-bold text-lg text-wine mb-3">{title}</h2>
+            {children}
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+// iPhoneカレンダー準拠：年→月→日の3階層。
+// 月ビュー＝縦スクロールの連続月（従来どおり）、年ビュー＝12か月のミニチュア一覧。
+// 日付は「1回目のタップで選択、選択中の日をもう一度タップで1日詳細」。
 export default function Calendar() {
   const [schedules, setSchedules] = useState([])
   const [oshiList, setOshiList] = useState([])
   const [friends, setFriends] = useState([])
   const [selected, setSelected] = useState(todayStr())
   const [detailDate, setDetailDate] = useState(null) // 1日ビュー表示中の日付
+  const [dayOrigin, setDayOrigin] = useState(null)   // 1日ビューのズーム起点（タップしたセルの中心座標）
+  const [view, setView] = useState('month')          // 'year' | 'month'
+  const [focusMonth, setFocusMonth] = useState(todayStr().slice(0, 7)) // いま注目している月（戻るラベル・遷移先の基準）
   const [form, setForm] = useState(null)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
@@ -50,6 +98,12 @@ export default function Calendar() {
   const [loading, setLoading] = useState(true)
   const months = useMemo(buildMonths, [])
   const todayRef = useRef(null)
+  const monthRefs = useRef({}) // 月ビューの各月カード（YYYY-MM → 要素）
+  const miniRefs = useRef({})  // 年ビューのミニ月（YYYY-MM → 要素）
+  const contRef = useRef(null) // ズームをかけるコンテナ
+  const pendingZoom = useRef(null) // ビュー切替後に適用するズーム情報 { dir, targetKey, point }
+  const [zoomClass, setZoomClass] = useState('')
+  const [zoomOrigin, setZoomOrigin] = useState(null)
   const today = todayStr()
 
   const reload = () => api('/schedules').then(setSchedules).catch(console.error).finally(() => setLoading(false))
@@ -78,16 +132,71 @@ export default function Calendar() {
     return set
   }, [schedules])
 
-  const lastTap = useRef({ date: null, at: 0 })
-  const tapDay = (dateStr) => {
-    const now = Date.now()
-    if (lastTap.current.date === dateStr && now - lastTap.current.at < 320) {
-      setDetailDate(dateStr) // ダブルタップ → 1日詳細へ
+  // 年ビュー用：年ごとに月をまとめる
+  const years = useMemo(() => {
+    const map = new Map()
+    months.forEach((m) => { if (!map.has(m.year)) map.set(m.year, []); map.get(m.year).push(m) })
+    return [...map.entries()]
+  }, [months])
+
+  // 日付タップ：未選択の日 → 選択、すでに選択中の日 → 1日詳細へ（ダブルタップ判定は廃止）
+  const tapDay = (dateStr, e) => {
+    if (selected === dateStr) {
+      const r = e.currentTarget.getBoundingClientRect()
+      setDayOrigin(`${r.left + r.width / 2}px ${r.top + r.height / 2}px`)
+      setDetailDate(dateStr)
     } else {
       setSelected(dateStr)
+      setFocusMonth(dateStr.slice(0, 7))
     }
-    lastTap.current = { date: dateStr, at: now }
   }
+
+  // 年ビューのミニ月をタップ → その月へズームインして月ビューへ
+  const openMonth = (y, m, e) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    pendingZoom.current = {
+      dir: 'in',
+      targetKey: `${y}-${pad(m)}`,
+      point: { x: r.left + r.width / 2, y: r.top + r.height / 2 },
+    }
+    setFocusMonth(`${y}-${pad(m)}`)
+    setView('month')
+  }
+
+  // 月ビューの戻るボタン → いま見ている月のミニチュアへズームアウトして年ビューへ
+  const backToYear = () => {
+    pendingZoom.current = { dir: 'out', targetKey: focusMonth, point: null }
+    setView('year')
+  }
+
+  // ビュー切替直後：対象の月へ即時スクロールし、タップ位置を起点にズームアニメーションを適用
+  useLayoutEffect(() => {
+    const p = pendingZoom.current
+    if (!p) return
+    pendingZoom.current = null
+    let point = p.point
+    if (p.dir === 'in') {
+      const el = monthRefs.current[p.targetKey]
+      if (el) el.scrollIntoView({ block: 'start' })
+    } else {
+      const el = miniRefs.current[p.targetKey]
+      if (el) {
+        el.scrollIntoView({ block: 'center' })
+        const r = el.getBoundingClientRect()
+        point = { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      }
+    }
+    const cont = contRef.current
+    if (cont && point) {
+      const cr = cont.getBoundingClientRect()
+      setZoomOrigin(`${point.x - cr.left}px ${point.y - cr.top}px`)
+    } else {
+      setZoomOrigin('50% 30%')
+    }
+    setZoomClass(p.dir === 'in' ? 'cal-zoom-in' : 'cal-zoom-out')
+    const t = setTimeout(() => setZoomClass(''), 320)
+    return () => clearTimeout(t)
+  }, [view])
 
   const save = async (e) => {
     e.preventDefault(); setError('')
@@ -131,7 +240,14 @@ export default function Calendar() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="font-bold text-lg text-wine">カレンダー</h2>
+        {view === 'month' ? (
+          /* iPhoneカレンダー準拠の戻るボタン：シェブロン＋遷移元の階層名（年）。色は既存アクセント */
+          <button onClick={backToYear} className="flex items-center gap-1 text-wine font-medium text-[15px] py-1.5 pr-4 -ml-1">
+            <Chevron /><span>{focusMonth.slice(0, 4)}年</span>
+          </button>
+        ) : (
+          <h2 className="font-bold text-lg text-wine">カレンダー</h2>
+        )}
         <PrimaryButton onClick={() => openAdd()}>＋ 予定</PrimaryButton>
       </div>
 
@@ -142,7 +258,7 @@ export default function Calendar() {
         <div className="space-y-2">
           {results.length === 0 && <Empty icon="🔍" message="見つかりませんでした" />}
           {results.map((s) => (
-            <button key={s.id} onClick={() => { setQuery(''); setDetailDate(s.event_date) }}
+            <button key={s.id} onClick={() => { setQuery(''); setDayOrigin(null); setDetailDate(s.event_date) }}
               className="w-full text-left bg-paper-card rounded-xl border border-paper-line/60 px-3 py-2 flex items-center gap-2">
               <span>{EVENT_ICONS[s.event_type] || '📌'}</span>
               <div className="flex-1 min-w-0">
@@ -155,9 +271,45 @@ export default function Calendar() {
       ) : loading ? (
         <Loading label="予定を読み込み中…" />
       ) : (
-        <>
+        <div ref={contRef} className={zoomClass} style={zoomOrigin ? { transformOrigin: zoomOrigin } : undefined}>
+          {view === 'year' ? (
+            /* 年ビュー：12か月のミニチュア。タップした月がそのまま拡大して月ビューになる */
+            <div className="space-y-3">
+              {years.map(([year, ms]) => (
+                <div key={year} className="bg-paper-card rounded-2xl border border-paper-line/60 p-3">
+                  <p className="font-bold text-xl text-wine mb-2">{year}年</p>
+                  <div className="grid grid-cols-3 gap-x-3 gap-y-4">
+                    {ms.map(({ year: y, month }) => {
+                      const key = `${y}-${pad(month)}`
+                      const isCurrent = y === new Date().getFullYear() && month === new Date().getMonth() + 1
+                      return (
+                        <button key={key} ref={(el) => { if (el) miniRefs.current[key] = el }}
+                          onClick={(e) => openMonth(y, month, e)} className="text-left">
+                          <p className={`text-[12px] font-bold mb-1 ${isCurrent ? 'bg-wine text-white rounded-full px-1.5 inline-block' : 'text-wine'}`}>{month}月</p>
+                          <div className="grid grid-cols-7 gap-y-[2px]">
+                            {monthCells(y, month).map((d, i) => {
+                              if (d === null) return <span key={i} className="h-3" />
+                              const ds = `${y}-${pad(month)}-${pad(d)}`
+                              const isToday = ds === today
+                              const has = !!byDate[ds]
+                              return (
+                                <span key={i} className={`h-3 text-[7px] leading-3 text-center ${isToday ? 'bg-wine text-white rounded-full' : has ? 'text-wine font-bold' : 'text-ink-soft'}`}>
+                                  {d}
+                                </span>
+                              )
+                            })}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] text-ink-soft">タップで選択・ダブルタップで詳細</p>
+            <p className="text-[11px] text-ink-soft">タップで選択・選択中の日をもう一度タップで詳細</p>
             <button onClick={() => setOnlyWithEvents((v) => !v)}
               className={`text-[11px] rounded-full px-2.5 py-1 border ${onlyWithEvents ? 'bg-wine text-white border-wine' : 'border-paper-line text-ink-soft'}`}>
               {onlyWithEvents ? '全ての月' : '予定のある月だけ'}
@@ -167,7 +319,8 @@ export default function Calendar() {
             const isCurrent = year === new Date().getFullYear() && month === new Date().getMonth() + 1
             const hasEvents = monthsWithEvents.has(`${year}-${pad(month)}`)
             return (
-              <div key={`${year}-${month}`} ref={isCurrent ? todayRef : null}
+              <div key={`${year}-${month}`}
+                ref={(el) => { if (el) { monthRefs.current[`${year}-${pad(month)}`] = el; if (isCurrent) todayRef.current = el } }}
                 className={`bg-paper-card rounded-2xl border border-paper-line/60 p-3 scroll-mt-2 ${!hasEvents && !isCurrent ? 'opacity-45' : ''}`}>
                 <p className="font-bold text-center text-ink mb-2">
                   {year}年 {month}月
@@ -187,7 +340,7 @@ export default function Calendar() {
                     const isSel = dateStr === selected
                     const dow = (i % 7)
                     return (
-                      <button key={i} onClick={() => tapDay(dateStr)}
+                      <button key={i} onClick={(e) => tapDay(dateStr, e)}
                         className="bg-paper-card h-14 p-0.5 flex flex-col items-center text-left relative">
                         <span className={`text-[11px] w-5 h-5 flex items-center justify-center ${isSel ? 'stamp-ring text-wine font-bold' : ''} ${isToday && !isSel ? 'bg-wine text-white rounded-full' : ''} ${dow === 0 ? 'text-wine' : dow === 6 ? 'text-[#4a6d7c]' : 'text-ink'}`}>
                           {d}
@@ -208,12 +361,15 @@ export default function Calendar() {
               </div>
             )
           })}
-        </>
+            </div>
+          )}
+        </div>
       )}
 
-      {/* 1日詳細（時間軸ふうの1日ビュー） */}
+      {/* 1日詳細（時間軸ふうの1日ビュー）。タップしたセルから拡大して開く */}
       {detailDate && (
-        <Modal title={formatDateJa(detailDate)} onClose={() => setDetailDate(null)}>
+        <DayZoomPanel title={formatDateJa(detailDate)} backLabel={`${Number(detailDate.slice(5, 7))}月`}
+          origin={dayOrigin} onClose={() => setDetailDate(null)}>
           {detailEvents.length === 0
             ? <Empty icon="🗓️" message="この日の予定はありません" />
             : (
@@ -249,7 +405,7 @@ export default function Calendar() {
           <PrimaryButton className="w-full mt-4" onClick={() => { const d = detailDate; setDetailDate(null); openAdd(d) }}>
             この日に予定を追加
           </PrimaryButton>
-        </Modal>
+        </DayZoomPanel>
       )}
 
       {/* 予定 追加・編集 */}

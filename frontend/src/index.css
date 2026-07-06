@@ -95,3 +95,24 @@ body {
 .toast-in {
   animation: toast-in 0.3s ease-out;
 }
+
+/* 第7弾：カレンダーの階層ズーム遷移。
+   タップした月・日付を起点(transform-origin)に拡大／縮小して次の階層へつなぐ。
+   低スペック端末でも滑らかに動くよう transform と opacity だけを使う。 */
+@keyframes cal-zoom-in {
+  from { transform: scale(0.25); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+@keyframes cal-zoom-out {
+  from { transform: scale(1.7); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+.cal-zoom-in  { animation: cal-zoom-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); will-change: transform, opacity; }
+.cal-zoom-out { animation: cal-zoom-out 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); will-change: transform, opacity; }
+/* 1日詳細パネル（セル位置から拡大して開き、閉じるときは逆再生で縮小） */
+.cal-day-panel { transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.24s ease; will-change: transform, opacity; }
+/* 視差・拡大演出が苦手な設定の端末ではアニメーションを無効化する */
+@media (prefers-reduced-motion: reduce) {
+  .cal-zoom-in, .cal-zoom-out { animation: none; }
+  .cal-day-panel { transition: none; }
+}
