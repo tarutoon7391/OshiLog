@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { formatDateJa, daysUntil, formatYen, formatTime } from '../util'
@@ -22,8 +22,22 @@ export default function Events({ user }) {
   const [savings, setSavings] = useState(null)      // 貯金モーダル { event, state }
   const nav = useNavigate()
 
+  // 通知タップからのディープリンク（/events?focus=ID）：該当イベントへスクロールして一時ハイライト
+  const [params] = useSearchParams()
+  const focusId = Number(params.get('focus')) || null
+  const focusRef = useRef(null)
+  const [flash, setFlash] = useState(false)
+
   const reload = () => api('/events').then(setEvents).catch(console.error).finally(() => setLoading(false))
   useEffect(() => { reload() }, [])
+
+  useEffect(() => {
+    if (loading || !focusId || !focusRef.current) return
+    focusRef.current.scrollIntoView({ block: 'center' })
+    setFlash(true)
+    const t = setTimeout(() => setFlash(false), 3000)
+    return () => clearTimeout(t)
+  }, [loading, focusId])
 
   const join = async (ev) => {
     setBusy(ev.id)
@@ -77,7 +91,8 @@ export default function Events({ user }) {
         const d = daysUntil(ev.event_date)
         const isPast = ev.event_date < now
         return (
-          <Card key={ev.id}>
+          <div key={ev.id} ref={ev.id === focusId ? focusRef : null} className="scroll-mt-16">
+          <Card className={ev.id === focusId && flash ? 'ring-2 ring-wine' : ''}>
             {ev.image && <img src={ev.image} alt={ev.name} className="w-full h-32 object-cover rounded-xl mb-2" />}
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
@@ -137,6 +152,7 @@ export default function Events({ user }) {
               )}
             </div>
           </Card>
+          </div>
         )
       })}
 

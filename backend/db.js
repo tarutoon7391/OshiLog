@@ -291,6 +291,12 @@ ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS attachment_name TEXT;
 
 -- 第4弾：イベントに会場マスターを紐付け（任意。地図表示・アクセス情報に使用）
 ALTER TABLE events ADD COLUMN IF NOT EXISTS venue_id INTEGER REFERENCES venues(id) ON DELETE SET NULL;
+
+-- 第8弾：イベントリマインドのカウントダウン化。
+-- 「最後に通知した残り日数」を持ち、同じ段階（14/7/3/2/1/0日前）を二重送信しないようにする。
+ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS last_reminded_days INTEGER;
+-- 旧方式（reminded=前日通知済み）からの引き継ぎ：当日通知だけは新方式でも届くよう1日前扱いにする
+UPDATE event_participants SET last_reminded_days = 1 WHERE reminded = true AND last_reminded_days IS NULL;
 `;
 
 // 既存データ用のバックフィルとシード投入

@@ -864,7 +864,23 @@ app.post('/api/events', auth, admin, wrap(async (req, res) => {
     `INSERT INTO events (name, artist_id, event_date, location, description, image, venue_id, created_by)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
     [name, artist_id || null, event_date, location || null, description || null, image || null, venue_id || null, req.userId]);
-  res.status(201).json(r.rows[0]);
+  const ev = r.rows[0];
+  // 第8弾：そのアーティストを推し登録している全ユーザーへ新規イベントを通知。
+  // artist_id未設定のイベントは対象者を特定できないため送らない。
+  if (ev.artist_id) {
+    const m = await pool.query('SELECT name FROM oshi_master WHERE id = $1', [ev.artist_id]);
+    const targets = await pool.query(
+      'SELECT DISTINCT user_id FROM oshi WHERE oshi_master_id = $1', [ev.artist_id]);
+    if (m.rows.length && targets.rows.length) {
+      push.sendToUsers(pool, targets.rows.map((t) => t.user_id), {
+        title: '🎪 新しいイベント',
+        body: `${m.rows[0].name}の新しいイベント「${ev.name}」が追加されました`,
+        url: `/events?focus=${ev.id}`,
+      });
+      console.log(`イベント追加通知: event_id=${ev.id} 対象${targets.rows.length}人`);
+    }
+  }
+  res.status(201).json(ev);
 }));
 
 app.put('/api/events/:id', auth, admin, wrap(async (req, res) => {
@@ -1212,12 +1228,26 @@ app.post('/api/admin/oshi-images/:id/:action', auth, admin, wrap(async (req, res
   const action = req.params.action;
   if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: '不正な操作です' });
   const status = action === 'approve' ? 'approved' : 'rejected';
-  const r = await pool.query('UPDATE oshi_images SET status = $1 WHERE id = $2 RETURNING oshi_master_id, image_url', [status, req.params.id]);
-  if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
+  // 通知の要否（状態が実際に変わったか）と投稿者を知るため、更新前の行を先に読む
+  const cur = await pool.query(
+    'SELECT oshi_master_id, image_url, submitted_by, status FROM oshi_images WHERE id = $1', [req.params.id]);
+  if (!cur.rows.length) return res.status(404).json({ error: '見つかりません' });
+  const img = cur.rows[0];
+  await pool.query('UPDATE oshi_images SET status = $1 WHERE id = $2', [status, req.params.id]);
   // 承認時、そのマスターにまだ代表画像がなければ設定する
   if (status === 'approved') {
     await pool.query('UPDATE oshi_master SET image_url = COALESCE(image_url, $1) WHERE id = $2',
-      [r.rows[0].image_url, r.rows[0].oshi_master_id]);
+      [img.image_url, img.oshi_master_id]);
+  }
+  // 第8弾：審査結果を投稿者本人へプッシュ通知（同じ状態への再操作では送らない）
+  if (img.submitted_by && img.status !== status) {
+    const m = await pool.query('SELECT name FROM oshi_master WHERE id = $1', [img.oshi_master_id]);
+    const oshiName = m.rows.length ? m.rows[0].name : '推し';
+    push.sendToUsers(pool, [img.submitted_by], {
+      title: status === 'approved' ? '✅ 着せ替え画像の審査結果' : '🖼️ 着せ替え画像の審査結果',
+      body: status === 'approved' ? `${oshiName}の画像が承認されました` : `${oshiName}の画像は却下されました`,
+      url: `/oshi/${img.oshi_master_id}`,
+    });
   }
   res.json({ ok: true });
 }));
@@ -1313,21 +1343,40 @@ if (fs.existsSync(distDir)) {
   app.get('*', (req, res) => res.sendFile(path.join(distDir, 'index.html')));
 }
 
-// ---- 参加予定イベントのリマインド通知（前日・当日を1回だけ送る） ----
+// ---- 参加予定イベントのリマインド通知（カウントダウン方式） ----
+// 2週間前・1週間前に1回ずつ、3日前からは毎日（3日前・2日前・前日・当日）通知する。
+// last_reminded_days（最後に通知した残り日数）で同じ段階の二重送信を防ぐ。
+const REMINDER_STAGES = [14, 7, 3, 2, 1, 0];
+
+function reminderTitle(daysLeft) {
+  if (daysLeft === 0) return '⏰ 本日開催！';
+  if (daysLeft === 1) return '⏰ いよいよ明日！';
+  if (daysLeft === 7) return '⏰ あと1週間';
+  if (daysLeft === 14) return '⏰ あと2週間';
+  return `⏰ あと${daysLeft}日`;
+}
+
 async function sendEventReminders() {
   if (!push.isConfigured()) return;
   try {
     const rows = await pool.query(
-      `SELECT ep.id, ep.user_id, e.name, e.event_date
+      `SELECT ep.id, ep.user_id, ep.last_reminded_days,
+              e.id AS event_id, e.name, e.event_date,
+              (e.event_date - CURRENT_DATE)::int AS days_left
        FROM event_participants ep JOIN events e ON e.id = ep.event_id
-       WHERE ep.reminded = false AND e.event_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 1`);
+       WHERE e.event_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 14`);
     for (const r of rows.rows) {
+      if (!REMINDER_STAGES.includes(r.days_left)) continue;
+      // この段階（またはより直前の段階）を通知済みならスキップ
+      if (r.last_reminded_days !== null && r.last_reminded_days <= r.days_left) continue;
       await push.sendToUsers(pool, [r.user_id], {
-        title: '⏰ イベントが近づいています',
+        title: reminderTitle(r.days_left),
         body: `${r.name}（${r.event_date}）`,
-        url: '/events',
+        url: `/events?focus=${r.event_id}`,
       });
-      await pool.query('UPDATE event_participants SET reminded = true WHERE id = $1', [r.id]);
+      await pool.query(
+        'UPDATE event_participants SET last_reminded_days = $1, reminded = true WHERE id = $2',
+        [r.days_left, r.id]);
     }
   } catch (e) {
     console.error('リマインド送信エラー:', e);
