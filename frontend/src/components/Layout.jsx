@@ -29,14 +29,15 @@ export default function Layout({ user, children }) {
         {/* スクロールするコンテンツ領域（ここだけがスクロール／上端で引っ張ると更新） */}
         <PullToRefresh className="flex-1 min-h-0 scroll-area">{children}</PullToRefresh>
 
-        {/* AI相談のFAB：判子風の丸ボタン。スクロールしても右下に固定 */}
+        {/* AI相談のFAB：判子風の丸ボタン。スクロールしても右下に固定。
+            飛び先はサイト案内AI（旧・案内タブ）。貯金AIは貯金画面内の導線から */}
         <button
-          onClick={() => nav('/savings')}
-          aria-label="貯金サポートAIに相談"
+          onClick={() => nav('/guide')}
+          aria-label="サイト案内AIに相談"
           className="absolute right-3 bottom-[calc(env(safe-area-inset-bottom)+4.25rem)] z-30 w-14 h-14 rounded-full bg-wine text-white shadow-lg active:scale-95 transition-transform flex items-center justify-center"
         >
           <span className="w-12 h-12 rounded-full border-2 border-white/70 flex flex-col items-center justify-center leading-none">
-            <span className="text-base">🐷</span>
+            <span className="text-base">💬</span>
             <span className="text-[9px] font-bold mt-0.5">AI相談</span>
           </span>
         </button>
