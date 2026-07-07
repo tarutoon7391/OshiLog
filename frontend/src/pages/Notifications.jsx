@@ -20,8 +20,11 @@ export default function Notifications() {
   }
 
   const readAll = async () => {
-    try { await api('/notifications/read-all', { method: 'POST' }); reload() }
-    catch (err) { alert(err.message) }
+    try {
+      await api('/notifications/read-all', { method: 'POST' })
+      reload()
+      window.dispatchEvent(new Event('oshilog:unread-refresh')) // ヘッダーのバッジも即時更新
+    } catch (err) { alert(err.message) }
   }
 
   if (rows === null) return <Loading label="通知を読み込み中…" />

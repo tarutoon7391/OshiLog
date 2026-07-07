@@ -24,11 +24,17 @@ export default function Layout({ user, children }) {
   const [unread, setUnread] = useState(0)
   useEffect(() => {
     let alive = true
-    api('/notifications/unread-count').then((r) => { if (alive) setUnread(r.count) }).catch(() => {})
+    const refresh = () => api('/notifications/unread-count').then((r) => { if (alive) setUnread(r.count) }).catch(() => {})
+    refresh()
     const s = getSocket()
-    const onNew = () => api('/notifications/unread-count').then((r) => { if (alive) setUnread(r.count) }).catch(() => {})
-    if (s) s.on('notification:new', onNew)
-    return () => { alive = false; if (s) s.off('notification:new', onNew) }
+    if (s) s.on('notification:new', refresh)
+    // 通知センターで既読にした直後にもバッジを更新する（ページ内から発火されるカスタムイベント）
+    window.addEventListener('oshilog:unread-refresh', refresh)
+    return () => {
+      alive = false
+      if (s) s.off('notification:new', refresh)
+      window.removeEventListener('oshilog:unread-refresh', refresh)
+    }
   }, [location.pathname])
 
   return (
