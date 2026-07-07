@@ -177,10 +177,25 @@ body {
 .cal-zoom-out { animation: cal-zoom-out 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); will-change: transform, opacity; }
 /* 1日詳細パネル（セル位置から拡大して開き、閉じるときは逆再生で縮小） */
 .cal-day-panel { transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.24s ease; will-change: transform, opacity; }
+/* ===== 第13弾：ホームの木（果実） ===== */
+/* 果実タップ→その場で拡大してモーダルになるパネル（transform/opacityのみで軽量） */
+.fruit-panel {
+  transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.24s ease;
+  will-change: transform, opacity;
+}
+/* 果実が風で揺れるようにゆっくり上下する（果実ごとにdelayをずらす） */
+@keyframes fruit-bob {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-4px); }
+}
+.fruit-bob { animation: fruit-bob 2.6s ease-in-out infinite alternate; }
+
 /* 視差・拡大演出が苦手な設定の端末ではアニメーションを無効化する */
 @media (prefers-reduced-motion: reduce) {
   .cal-zoom-in, .cal-zoom-out { animation: none; }
   .cal-day-panel { transition: none; }
+  .fruit-panel { transition: none; }
+  .fruit-bob { animation: none; }
   .fade-up, .stagger > *, .sheet-up, .page-in, .stamp-once, .toast-in, .toast-out { animation: none; }
   .press, .press:active { transition: none; transform: none; }
 }
