@@ -2,16 +2,20 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { api } from '../api'
-import { daysUntil, formatDateJa, formatYen, currentMonth, formatHm, EVENT_ICONS } from '../util'
+import { daysUntil, formatDateJa, formatYen, currentMonth, formatHm, EVENT_ICONS, importanceColor, importanceMark } from '../util'
 import { Card, OshiAvatar, Empty, Loading, ProgressBar, PrimaryButton } from '../components/ui'
 
-// 予定1件の控えめな行表示（今日の予定・直近の予定モーダルで共通）
+// 予定1件の控えめな行表示（今日の予定・直近の予定モーダルで共通）。
+// 第14弾：重要度が設定されたイベント予定は縁取り色と星印で目立たせる
 function ScheduleRow({ s, badge, accentBorder = false }) {
+  const impColor = importanceColor(s.event_importance)
   return (
-    <div className={`bg-paper-card border rounded-2xl px-4 py-2.5 flex items-center gap-2 ${accentBorder ? 'border-wine/40' : 'border-paper-line/60'}`}>
+    <div className={`bg-paper-card border rounded-2xl px-4 py-2.5 flex items-center gap-2 ${accentBorder ? 'border-wine/40' : 'border-paper-line/60'}`}
+      style={impColor ? { borderColor: impColor, borderWidth: 2 } : undefined}>
       <span className="text-lg">{EVENT_ICONS[s.event_type] || '📌'}</span>
       <div className="flex-1 min-w-0">
         <p className="text-sm truncate">
+          {importanceMark(s.event_importance) && <span className="mr-0.5">{importanceMark(s.event_importance)}</span>}
           {s.title}
           {!s.is_own && <span className="text-[10px] text-ink-soft">（{s.owner_name}）</span>}
         </p>

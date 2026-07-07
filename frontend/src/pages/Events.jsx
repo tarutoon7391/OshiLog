@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
-import { formatDateJa, daysUntil, formatYen, formatTime } from '../util'
+import { formatDateJa, daysUntil, formatYen, formatTime, IMPORTANCE_LEVELS, importanceMark, importanceCardClass } from '../util'
 import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty, ProgressBar, Loading } from '../components/ui'
 
 // Google Maps のクライアント設定（APIキー）はサーバーから実行時に取得する。
@@ -80,6 +80,14 @@ export default function Events({ user }) {
     } catch (err) { alert(err.message) }
   }
 
+  // 第14弾：参加イベントの重要度を変更（変更後は一覧を取り直して色に反映）
+  const setImportance = async (ev, value) => {
+    try {
+      await api(`/events/${ev.id}/importance`, { method: 'PUT', body: { importance: value } })
+      reload()
+    } catch (err) { alert(err.message) }
+  }
+
   const now = new Date().toISOString().slice(0, 10)
 
   if (loading) return <Loading label="イベントを読み込み中…" />
@@ -102,11 +110,11 @@ export default function Events({ user }) {
         const isPast = ev.event_date < now
         return (
           <div key={ev.id} ref={ev.id === focusId ? focusRef : null} className="scroll-mt-16">
-          <Card className={ev.id === focusId && flash ? 'ring-2 ring-wine' : ''}>
+          <Card className={`${ev.id === focusId && flash ? 'ring-2 ring-wine' : ''} ${ev.joined ? importanceCardClass(ev.importance) : ''}`}>
             {ev.image && <img src={ev.image} alt={ev.name} className="w-full h-32 object-cover rounded-xl mb-2" />}
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="font-bold">{ev.name}</p>
+                <p className="font-bold">{ev.joined && importanceMark(ev.importance) && <span className="mr-0.5">{importanceMark(ev.importance)}</span>}{ev.name}</p>
                 <p className="text-[11px] text-ink-soft mt-0.5">
                   📅 {formatDateJa(ev.event_date)}{d >= 0 ? `（あと${d}日）` : '（終了）'}
                 </p>
@@ -119,6 +127,26 @@ export default function Events({ user }) {
 
             {/* 会場の地図・アクセス（会場が紐づいているときだけ表示） */}
             <VenueMap event={ev} />
+
+            {/* 第14弾：重要度の設定（参加者のみ）。色分けはカレンダー・ホーム・一覧に反映される */}
+            {ev.joined && (
+              <div className="mt-3 flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] text-ink-soft shrink-0">重要度</span>
+                {IMPORTANCE_LEVELS.map((l) => {
+                  const active = (ev.importance || 'normal') === l.key
+                  return (
+                    <button key={l.key} onClick={() => setImportance(ev, l.key)}
+                      className={`text-[10px] rounded-full px-2.5 py-1 border transition-colors ${
+                        active
+                          ? (l.key === 'very_important' ? 'bg-wine-dark text-white border-wine-dark' : 'bg-wine text-white border-wine')
+                          : 'border-paper-line text-ink-soft'
+                      }`}>
+                      {importanceMark(l.key)}{l.label}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
 
             {/* 貯金（参加者のみ）。バーやカードをタップで入出金モーダルへ */}
             {ev.joined && (

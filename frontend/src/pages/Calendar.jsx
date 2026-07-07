@@ -1,7 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api'
-import { EVENT_TYPES, EVENT_ICONS, REMINDER_OPTIONS, reminderLabel, todayStr, formatDateJa, formatHm } from '../util'
+import { EVENT_TYPES, EVENT_ICONS, REMINDER_OPTIONS, reminderLabel, importanceColor, importanceMark, todayStr, formatDateJa, formatHm } from '../util'
+
+// 予定の表示色：自分の予定は「重要度の上書き色 → 推しカラー → 既定」の順、共有予定は控えめな色（第14弾）
+const scheduleColor = (s) => (s.is_own ? (importanceColor(s.event_importance) || s.oshi_color || '#8b3a4a') : '#a88')
 import { Modal, Field, inputClass, OshiSelect, PrimaryButton, GhostButton, Empty, Avatar, Loading } from '../components/ui'
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
@@ -354,8 +357,8 @@ export default function Calendar() {
                         <div className="w-full mt-0.5 space-y-px overflow-hidden">
                           {events.slice(0, 2).map((s) => (
                             <div key={s.id} className="text-[8px] leading-tight text-white rounded px-0.5 truncate"
-                              style={{ backgroundColor: s.is_own ? (s.oshi_color || '#8b3a4a') : '#a88' }}>
-                              {s.is_own ? '' : '👤'}{s.title}
+                              style={{ backgroundColor: scheduleColor(s) }}>
+                              {s.is_own ? importanceMark(s.event_importance) : '👤'}{s.title}
                             </div>
                           ))}
                           {events.length > 2 && <div className="text-[8px] text-ink-soft text-center">+{events.length - 2}</div>}
@@ -383,14 +386,17 @@ export default function Calendar() {
                 {detailEvents.map((s) => (
                   <li key={s.id} className="ml-4 relative">
                     <span className="absolute -left-[22px] top-1 w-3 h-3 rounded-full border-2 border-paper-card"
-                      style={{ backgroundColor: s.is_own ? (s.oshi_color || '#8b3a4a') : '#a88' }} />
+                      style={{ backgroundColor: scheduleColor(s) }} />
                     <div className="bg-paper rounded-xl p-3">
                       <p className="text-[11px] font-bold text-wine">
                         {formatHm(s.start_time)
                           ? `${formatHm(s.start_time)}${formatHm(s.end_time) ? `〜${formatHm(s.end_time)}` : ''}`
                           : '終日'}
                       </p>
-                      <p className="font-bold text-sm">{EVENT_ICONS[s.event_type] || '📌'} {s.title}</p>
+                      <p className="font-bold text-sm">
+                        {importanceMark(s.event_importance) && <span className="mr-0.5">{importanceMark(s.event_importance)}</span>}
+                        {EVENT_ICONS[s.event_type] || '📌'} {s.title}
+                      </p>
                       <p className="text-[11px] text-ink-soft mt-0.5">
                         {s.event_type}{s.oshi_name ? `・${s.oshi_name}` : ''}
                         {!s.is_own && <span className="ml-1">👤 {s.owner_name}さんの共有予定</span>}

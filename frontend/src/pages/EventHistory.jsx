@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { formatDateJa, formatYen, VISIBILITY_MAP } from '../util'
+import { formatDateJa, formatYen, VISIBILITY_MAP, importanceMark, importanceCardClass } from '../util'
 import { Card, Modal, Empty, Loading } from '../components/ui'
 
 // イベント履歴：過去に参加したイベント一覧＋そのイベントの参戦記録・日記
@@ -37,10 +37,10 @@ export default function EventHistory() {
 
       {events.map((ev) => (
         <button key={ev.id} onClick={() => openDetail(ev)} className="w-full text-left">
-          <Card>
+          <Card className={importanceCardClass(ev.importance)}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="font-bold truncate">{ev.name}</p>
+                <p className="font-bold truncate">{importanceMark(ev.importance) && <span className="mr-0.5">{importanceMark(ev.importance)}</span>}{ev.name}</p>
                 <p className="text-[11px] text-ink-soft">📅 {formatDateJa(ev.event_date)}</p>
                 {ev.location && <p className="text-[11px] text-ink-soft">📍 {ev.location}</p>}
               </div>

@@ -238,13 +238,16 @@ function parseScheduleExtras(body) {
 }
 
 app.get('/api/schedules', auth, wrap(async (req, res) => {
+  // event_importance：予定が共通イベント由来（event_idあり）の場合の、閲覧者自身が設定した重要度（第14弾）
   const r = await pool.query(
     `SELECT s.*, o.name AS oshi_name, o.color AS oshi_color, u.display_name AS owner_name,
             (s.user_id = $1) AS is_own,
+            ep.importance AS event_importance,
             COALESCE((SELECT array_agg(ss.shared_with_user_id) FROM schedule_shares ss
                       WHERE ss.schedule_id = s.id AND s.user_id = $1), '{}') AS shared_user_ids
      FROM schedules s
      LEFT JOIN oshi o ON o.id = s.oshi_id
+     LEFT JOIN event_participants ep ON ep.event_id = s.event_id AND ep.user_id = $1
      JOIN users u ON u.id = s.user_id
      WHERE s.user_id = $1
         OR s.id IN (SELECT schedule_id FROM schedule_shares WHERE shared_with_user_id = $1)
@@ -782,6 +785,7 @@ app.get('/api/events', auth, wrap(async (req, res) => {
             (SELECT COUNT(*)::int FROM event_participants ep WHERE ep.event_id = e.id) AS participant_count,
             EXISTS (SELECT 1 FROM event_participants ep WHERE ep.event_id = e.id AND ep.user_id = $1) AS joined,
             (SELECT savings_goal FROM event_participants ep WHERE ep.event_id = e.id AND ep.user_id = $1) AS savings_goal,
+            (SELECT importance FROM event_participants ep WHERE ep.event_id = e.id AND ep.user_id = $1) AS importance,
             COALESCE((SELECT SUM(CASE WHEN st.type = 'deposit' THEN st.amount ELSE -st.amount END)::int
                       FROM savings_transactions st
                       JOIN event_participants ep2 ON ep2.id = st.event_participant_id
@@ -806,6 +810,18 @@ async function getSavings(eventId, userId) {
      FROM savings_transactions WHERE event_participant_id = $1`, [epId]);
   return { event_participant_id: epId, savings_goal: p.rows[0].savings_goal, balance: bal.rows[0].balance };
 }
+
+// 第14弾：参加イベントの重要度を設定（参加者本人のみ・値はホワイトリストで検証）
+const IMPORTANCE_LEVELS = ['normal', 'important', 'very_important'];
+app.put('/api/events/:id/importance', auth, wrap(async (req, res) => {
+  const value = String(req.body.importance || '');
+  if (!IMPORTANCE_LEVELS.includes(value)) return res.status(400).json({ error: '重要度の値が不正です' });
+  const r = await pool.query(
+    'UPDATE event_participants SET importance = $1 WHERE event_id = $2 AND user_id = $3 RETURNING importance',
+    [value, Number(req.params.id), req.userId]);
+  if (!r.rows.length) return res.status(404).json({ error: 'このイベントに参加していません' });
+  res.json({ ok: true, importance: r.rows[0].importance });
+}));
 
 // 参加予定イベントの貯金目標額を設定（参加者本人のみ）
 app.put('/api/events/:id/savings', auth, wrap(async (req, res) => {
@@ -879,7 +895,7 @@ app.post('/api/events/:id/savings/ai', auth, wrap(async (req, res) => {
 // イベント履歴：自分が参加した「過去の」イベントを新しい順に。参戦記録・日記の件数も返す
 app.get('/api/events/history', auth, wrap(async (req, res) => {
   const r = await pool.query(
-    `SELECT e.*, m.name AS artist_name,
+    `SELECT e.*, m.name AS artist_name, ep.importance,
             COALESCE((SELECT SUM(rec.amount)::int FROM records rec WHERE rec.event_id = e.id AND rec.user_id = $1), 0) AS spent_amount,
             (SELECT COUNT(*)::int FROM records rec WHERE rec.event_id = e.id AND rec.user_id = $1) AS record_count,
             (SELECT COUNT(*)::int FROM diary_entries d WHERE d.related_event_id = e.id AND d.user_id = $1) AS diary_count
@@ -1002,7 +1018,9 @@ app.post('/api/events/:id/join', auth, wrap(async (req, res) => {
   const dup = await pool.query('SELECT 1 FROM event_participants WHERE event_id = $1 AND user_id = $2', [eventId, req.userId]);
   if (dup.rows.length) return res.status(409).json({ error: 'すでに参加しています' });
 
-  await pool.query('INSERT INTO event_participants (event_id, user_id) VALUES ($1, $2)', [eventId, req.userId]);
+  // 第14弾：参加時に重要度も指定できる（未指定・不正値は normal）
+  const importance = IMPORTANCE_LEVELS.includes(req.body.importance) ? req.body.importance : 'normal';
+  await pool.query('INSERT INTO event_participants (event_id, user_id, importance) VALUES ($1, $2, $3)', [eventId, req.userId, importance]);
 
   // 個人スケジュールにも予定として追加（event_idで紐付け）
   await pool.query(

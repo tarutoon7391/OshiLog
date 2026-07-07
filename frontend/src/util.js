@@ -29,6 +29,31 @@ export function reminderLabel(mins) {
   return hit ? hit.label : null
 }
 
+// 第14弾：イベントの重要度。色は既存のアクセント系のみ（蛍光色・ネオンは使わない）
+export const IMPORTANCE_LEVELS = [
+  { key: 'normal', label: 'ふつう' },
+  { key: 'important', label: '重要' },
+  { key: 'very_important', label: '最重要' },
+]
+// 重要度による表示色の上書き（normal は null＝従来色のまま）
+export function importanceColor(imp) {
+  if (imp === 'important') return 'var(--color-wine)'
+  if (imp === 'very_important') return 'var(--color-wine-dark)'
+  return null
+}
+// 重要度の目印（タイトルの先頭などに付ける星。normal はなし）
+export function importanceMark(imp) {
+  if (imp === 'important') return '⭐'
+  if (imp === 'very_important') return '🌟'
+  return ''
+}
+// カードの縁取りクラス（イベント一覧・履歴で使用）
+export function importanceCardClass(imp) {
+  if (imp === 'important') return 'border-l-4 border-l-wine'
+  if (imp === 'very_important') return 'border-l-4 border-l-wine-dark ring-1 ring-gold/60'
+  return ''
+}
+
 // つぶやきの公開範囲
 export const VISIBILITIES = [
   { key: 'private', label: 'プライベート', icon: '🔒', hint: '自分だけ' },

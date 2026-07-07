@@ -306,6 +306,10 @@ ALTER TABLE schedules ADD COLUMN IF NOT EXISTS reminder_offset_minutes INTEGER;
 ALTER TABLE schedules ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ;
 -- 第12弾：推し友申請を自動的に拒否する設定（デフォルトはオフ）
 ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_reject_requests BOOLEAN NOT NULL DEFAULT false;
+
+-- 第14弾：参加イベントごとの重要度（normal / important / very_important）。
+-- 重要度に応じてカレンダー・ホーム・イベント一覧などの表示色が変わる
+ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS importance TEXT NOT NULL DEFAULT 'normal';
 `;
 
 // 既存データ用のバックフィルとシード投入

@@ -74,10 +74,14 @@ export default function OshiBrowse() {
   const byGenre = {}
   OSHI_GENRES.forEach((g) => { byGenre[g] = [] })
   masters.forEach((m) => { (byGenre[m.genre] || (byGenre[m.genre] = [])).push(m) })
+  // 第14弾：各ジャンル内は登録人数の多い順（人気順）に表示する。
+  // APIも人気順で返すが、画面側でも明示的にソートして順序を保証する
+  const byPopularity = (a, b) => (b.registered_count - a.registered_count) || (a.id - b.id)
+  Object.values(byGenre).forEach((list) => list.sort(byPopularity))
 
-  // 検索：ジャンルを問わず名前の部分一致（英字は大文字小文字を区別しない）
+  // 検索：ジャンルを問わず名前の部分一致（英字は大文字小文字を区別しない）。結果も人気順
   const q = query.trim().toLowerCase()
-  const searchResults = q ? masters.filter((m) => m.name.toLowerCase().includes(q)) : null
+  const searchResults = q ? masters.filter((m) => m.name.toLowerCase().includes(q)).sort(byPopularity) : null
 
   return (
     <div className="space-y-3">
