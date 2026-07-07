@@ -18,6 +18,8 @@ export default function Profile({ user, onLogout, onUpdate }) {
   const [notifyPrefs, setNotifyPrefs] = useState({
     notify_friend_request: true, notify_chat_dm: true, notify_chat_group: true, notify_event: true,
   })
+  // /me から最新の設定を取得できたか。取得前に保存しても、設定トグル類を初期値で上書きしないためのガード
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [pushMsg, setPushMsg] = useState('')
@@ -40,6 +42,7 @@ export default function Profile({ user, onLogout, onUpdate }) {
         notify_chat_group: u.notify_chat_group !== false,
         notify_event: u.notify_event !== false,
       })
+      setSettingsLoaded(true)
     }).catch(console.error)
   }, [])
 
@@ -53,7 +56,14 @@ export default function Profile({ user, onLogout, onUpdate }) {
   const save = async (e) => {
     e.preventDefault(); setError(''); setSaved(false)
     try {
-      const updated = await api('/me', { method: 'PUT', body: { display_name: displayName, bio, avatar: avatar || null, is_public: isPublic, auto_reject_requests: autoReject, ...notifyPrefs } })
+      // 設定トグル類は /me の取得完了後にだけ送る（取得前の保存で初期値に戻さないため。未送信はサーバー側で「変更なし」扱い）
+      const updated = await api('/me', {
+        method: 'PUT',
+        body: {
+          display_name: displayName, bio, avatar: avatar || null, is_public: isPublic,
+          ...(settingsLoaded ? { auto_reject_requests: autoReject, ...notifyPrefs } : {}),
+        },
+      })
       updateStoredUser(updated)
       onUpdate(updated)
       setSaved(true)
