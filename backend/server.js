@@ -76,7 +76,7 @@ app.post('/api/register', wrap(async (req, res) => {
   if (dup.rows.length) return res.status(409).json({ error: 'このユーザーIDは既に使われています' });
   const hash = await hashPassword(password);
   const r = await pool.query(
-    'INSERT INTO users (username, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id, username, display_name, avatar, bio, is_admin, is_client, is_public',
+    'INSERT INTO users (username, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id, username, display_name, avatar, bio, is_admin, is_client, is_public, auto_reject_requests',
     [username, hash, displayName]);
   const user = r.rows[0];
   res.status(201).json({ user, token: signToken(user.id) });
@@ -92,26 +92,28 @@ app.post('/api/login', wrap(async (req, res) => {
   const ok = await verifyPassword(password, r.rows[0].password_hash);
   if (!ok) return res.status(401).json({ error: 'ユーザーIDまたはパスワードが違います' });
   const u = r.rows[0];
-  const user = { id: u.id, username: u.username, display_name: u.display_name, avatar: u.avatar, bio: u.bio, is_admin: u.is_admin, is_client: u.is_client, is_public: u.is_public };
+  const user = { id: u.id, username: u.username, display_name: u.display_name, avatar: u.avatar, bio: u.bio, is_admin: u.is_admin, is_client: u.is_client, is_public: u.is_public, auto_reject_requests: u.auto_reject_requests };
   res.json({ user, token: signToken(user.id) });
 }));
 
 app.get('/api/me', auth, wrap(async (req, res) => {
   const r = await pool.query(
-    'SELECT id, username, display_name, avatar, bio, is_admin, is_client, is_public FROM users WHERE id = $1', [req.userId]);
+    'SELECT id, username, display_name, avatar, bio, is_admin, is_client, is_public, auto_reject_requests FROM users WHERE id = $1', [req.userId]);
   if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
   res.json(r.rows[0]);
 }));
 
 app.put('/api/me', auth, wrap(async (req, res) => {
-  const { display_name, avatar, bio, is_public } = req.body;
+  const { display_name, avatar, bio, is_public, auto_reject_requests } = req.body;
   const r = await pool.query(
     `UPDATE users SET display_name = COALESCE($1, display_name), avatar = $2, bio = $3,
-            is_public = COALESCE($4, is_public), updated_at = now()
-     WHERE id = $5 RETURNING id, username, display_name, avatar, bio, is_admin, is_client, is_public`,
+            is_public = COALESCE($4, is_public),
+            auto_reject_requests = COALESCE($5, auto_reject_requests), updated_at = now()
+     WHERE id = $6 RETURNING id, username, display_name, avatar, bio, is_admin, is_client, is_public, auto_reject_requests`,
     [display_name ? String(display_name).slice(0, 20) : null, avatar || null,
      bio ? String(bio).slice(0, 200) : null,
-     typeof is_public === 'boolean' ? is_public : null, req.userId]);
+     typeof is_public === 'boolean' ? is_public : null,
+     typeof auto_reject_requests === 'boolean' ? auto_reject_requests : null, req.userId]);
   res.json(r.rows[0]);
 }));
 
@@ -222,6 +224,19 @@ const emitScheduleResync = (userIds) => {
   userIds.forEach((uid) => realtime.emitToUser(uid, 'schedule:changed', {}));
 };
 
+// 第12弾：予定の任意項目（関連URL・リマインド）の入力検証。
+// URLは http(s) のみ許可（javascript: 等の危険なスキームを保存させない）。
+// リマインドは選択肢にある分数のみ受け付け、それ以外は「なし」に丸める。
+const SCHEDULE_REMINDER_OFFSETS = [5, 15, 30, 60, 180, 1440];
+function parseScheduleExtras(body) {
+  const url = body.url ? String(body.url).trim() : '';
+  if (url && !/^https?:\/\//i.test(url)) return { error: 'URLは http:// または https:// で始まる形式で入力してください' };
+  if (url.length > 500) return { error: 'URLは500文字以内にしてください' };
+  const raw = body.reminder_offset_minutes;
+  const offset = raw == null || raw === '' ? null : Number(raw);
+  return { url: url || null, reminder: SCHEDULE_REMINDER_OFFSETS.includes(offset) ? offset : null };
+}
+
 app.get('/api/schedules', auth, wrap(async (req, res) => {
   const r = await pool.query(
     `SELECT s.*, o.name AS oshi_name, o.color AS oshi_color, u.display_name AS owner_name,
@@ -240,12 +255,14 @@ app.get('/api/schedules', auth, wrap(async (req, res) => {
 app.post('/api/schedules', auth, wrap(async (req, res) => {
   const { oshi_id, title, event_type, event_date, memo, start_time, end_time, shared_with } = req.body;
   if (!title || !event_date) return res.status(400).json({ error: 'タイトルと日付を入力してください' });
+  const extras = parseScheduleExtras(req.body);
+  if (extras.error) return res.status(400).json({ error: extras.error });
   const shareCount = Array.isArray(shared_with) ? shared_with.length : 0;
   const r = await pool.query(
-    `INSERT INTO schedules (user_id, oshi_id, title, event_type, event_date, memo, start_time, end_time, is_shared)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    `INSERT INTO schedules (user_id, oshi_id, title, event_type, event_date, memo, start_time, end_time, is_shared, url, reminder_offset_minutes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
     [req.userId, oshi_id || null, title, event_type || 'ライブ', event_date, memo || null,
-     start_time || null, end_time || null, shareCount > 0]);
+     start_time || null, end_time || null, shareCount > 0, extras.url, extras.reminder]);
   const n = await setScheduleShares(r.rows[0].id, req.userId, shared_with);
   if (n > 0) emitScheduleResync((shared_with || []).map(Number));
   res.status(201).json(r.rows[0]);
@@ -253,13 +270,28 @@ app.post('/api/schedules', auth, wrap(async (req, res) => {
 
 app.put('/api/schedules/:id', auth, wrap(async (req, res) => {
   const { oshi_id, title, event_type, event_date, memo, start_time, end_time, shared_with } = req.body;
+  const extras = parseScheduleExtras(req.body);
+  if (extras.error) return res.status(400).json({ error: extras.error });
+  // 日時またはリマインドのタイミングが変わったときだけ送信済み印をリセットする
+  // （メモ等だけの編集で、送信済みリマインドが再送されないように）
+  const old = await pool.query(
+    'SELECT event_date, start_time, reminder_offset_minutes FROM schedules WHERE id = $1 AND user_id = $2',
+    [req.params.id, req.userId]);
+  if (!old.rows.length) return res.status(404).json({ error: '見つかりません' });
+  const hm = (t) => (t ? String(t).slice(0, 5) : null);
+  const timingChanged =
+    old.rows[0].event_date !== event_date ||
+    hm(old.rows[0].start_time) !== hm(start_time || null) ||
+    (old.rows[0].reminder_offset_minutes ?? null) !== extras.reminder;
   const shareCount = Array.isArray(shared_with) ? shared_with.length : 0;
   const r = await pool.query(
     `UPDATE schedules SET oshi_id = $1, title = $2, event_type = $3, event_date = $4, memo = $5,
-            start_time = $6, end_time = $7, is_shared = $8, updated_at = now()
-     WHERE id = $9 AND user_id = $10 RETURNING *`,
+            start_time = $6, end_time = $7, is_shared = $8, url = $9, reminder_offset_minutes = $10,
+            reminder_sent_at = (CASE WHEN $11 THEN NULL ELSE reminder_sent_at END), updated_at = now()
+     WHERE id = $12 AND user_id = $13 RETURNING *`,
     [oshi_id || null, title, event_type, event_date, memo || null,
-     start_time || null, end_time || null, shareCount > 0, req.params.id, req.userId]);
+     start_time || null, end_time || null, shareCount > 0, extras.url, extras.reminder,
+     timingChanged, req.params.id, req.userId]);
   if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
   await setScheduleShares(r.rows[0].id, req.userId, shared_with);
   emitScheduleResync((shared_with || []).map(Number));
@@ -505,6 +537,12 @@ app.post('/api/friends/request', auth, wrap(async (req, res) => {
     `SELECT * FROM friendships WHERE (requester_id = $1 AND addressee_id = $2) OR (requester_id = $2 AND addressee_id = $1)`,
     [req.userId, addressee]);
   if (ex.rows.length) return res.status(409).json({ error: 'すでに申請済み、または推し友です' });
+  // 第12弾：相手が「推し友申請を自動的に拒否する」をオンにしている場合は即座に拒否扱い。
+  // このアプリの拒否は行を残さない（=再申請可能）ため、自動拒否も行を作らず終える。
+  // レスポンスは通常送信と同じにして、相手が自動拒否設定かどうかを申請者に漏らさない。
+  const target = await pool.query('SELECT auto_reject_requests FROM users WHERE id = $1', [addressee]);
+  if (!target.rows.length) return res.status(404).json({ error: '相手が見つかりません' });
+  if (target.rows[0].auto_reject_requests) return res.status(201).json({ ok: true });
   await pool.query(
     'INSERT INTO friendships (requester_id, addressee_id, status) VALUES ($1, $2, \'pending\')',
     [req.userId, addressee]);
@@ -1392,6 +1430,50 @@ async function sendEventReminders() {
   }
 }
 
+// ---- 予定の個別リマインド通知（第12弾） ----
+// schedules.reminder_offset_minutes が設定された予定について、
+// 「予定日時（日本時間。時刻未指定は0:00扱い）− オフセット」を過ぎたら予定の持ち主へ1回だけ通知する。
+// 二重送信の防止：reminder_sent_at を先に原子的に付け、付けられた行だけ送信する
+// （複数インスタンスや再実行でも同じ予定に2回送らない）。
+function scheduleReminderLabel(mins) {
+  if (mins === 1440) return '1日前';
+  if (mins === 180) return '3時間前';
+  if (mins === 60) return '1時間前';
+  return `${mins}分前`;
+}
+
+async function sendScheduleReminders() {
+  if (!push.isConfigured()) return;
+  try {
+    // 予定日時はユーザーが日本時間の壁時計で入力する前提なので、Asia/Tokyoとして解釈してから比較する。
+    // リマインド時刻を12時間以上過ぎた古い予定には送らない（後から登録した過去予定への誤送信防止）。
+    const rows = await pool.query(
+      `SELECT s.id, s.user_id, s.title, s.event_date, s.start_time, s.reminder_offset_minutes
+       FROM schedules s
+       WHERE s.reminder_offset_minutes IS NOT NULL
+         AND s.reminder_sent_at IS NULL
+         AND ((s.event_date + COALESCE(s.start_time, time '00:00')) AT TIME ZONE 'Asia/Tokyo')
+             - make_interval(mins => s.reminder_offset_minutes) <= now()
+         AND ((s.event_date + COALESCE(s.start_time, time '00:00')) AT TIME ZONE 'Asia/Tokyo')
+             - make_interval(mins => s.reminder_offset_minutes) > now() - interval '12 hours'`);
+    for (const s of rows.rows) {
+      const claimed = await pool.query(
+        'UPDATE schedules SET reminder_sent_at = now() WHERE id = $1 AND reminder_sent_at IS NULL RETURNING id',
+        [s.id]);
+      if (!claimed.rows.length) continue; // 別の実行が先に送信済み
+      const [, m, d] = s.event_date.split('-').map(Number); // event_date は 'YYYY-MM-DD' 文字列
+      const when = `${m}/${d}${s.start_time ? ' ' + String(s.start_time).slice(0, 5) : ''}`;
+      await push.sendToUsers(pool, [s.user_id], {
+        title: `⏰ 予定リマインド（${scheduleReminderLabel(s.reminder_offset_minutes)}）`,
+        body: `${s.title}（${when}）`,
+        url: '/calendar',
+      });
+    }
+  } catch (e) {
+    console.error('予定リマインド送信エラー:', e);
+  }
+}
+
 async function start() {
   for (let i = 1; i <= 10; i++) {
     try { await initDb(); break; }
@@ -1409,6 +1491,10 @@ async function start() {
   // 6時間ごとにイベントリマインドをチェック
   sendEventReminders();
   setInterval(sendEventReminders, 6 * 60 * 60 * 1000);
+
+  // 5分ごとに予定の個別リマインドをチェック（第12弾）
+  sendScheduleReminders();
+  setInterval(sendScheduleReminders, 5 * 60 * 1000);
 }
 
 start().catch((err) => {

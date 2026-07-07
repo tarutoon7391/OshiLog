@@ -3,9 +3,32 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { getSocket } from '../socket'
 import { OSHI_GENRES, OSHI_COLORS } from '../util'
-import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty, Loading } from '../components/ui'
+import { Card, Modal, Field, inputClass, PrimaryButton, GhostButton, Empty, Loading, SectionTitle, OshiAvatar } from '../components/ui'
 
 const emptyForm = { name: '', genre: 'アイドル', color: '#8b3a4a', image: '' }
+
+// 推しマスターのポラロイドタイル（ジャンル別一覧・検索結果で共通）
+function MasterTile({ m, i, nav, register }) {
+  return (
+    <div className="polaroid rounded-sm" style={{ transform: `rotate(${i % 2 ? 1.3 : -1.3}deg)` }}>
+      <button onClick={() => nav(`/oshi/${m.id}`)} className="press aspect-square w-full rounded-sm overflow-hidden flex items-center justify-center"
+        style={{ backgroundColor: m.display_image ? '#fff' : '#e8dfce' }}>
+        {m.display_image
+          ? <img src={m.display_image} alt={m.name} className="w-full h-full object-cover" />
+          : <span className="text-4xl text-wine/40 font-black">{m.name.slice(0, 1)}</span>}
+      </button>
+      <div className="px-1 pt-1.5">
+        <button onClick={() => nav(`/oshi/${m.id}`)} className="block w-full text-sm font-bold text-ink truncate text-center">{m.name}</button>
+        <p className="text-[11px] text-ink-soft text-center">{m.registered_count}人が登録中</p>
+        <div className="mt-1.5 text-center">
+          {m.mine
+            ? <span className="text-[11px] text-wine font-bold">✔ 登録済み</span>
+            : <GhostButton className="w-full py-1 text-xs" onClick={() => register({ name: m.name, genre: m.genre })}>推しに登録</GhostButton>}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // 推しブラウズ：ジャンルブロック→タップで正方形のポラロイドタイルが展開
 export default function OshiBrowse() {
@@ -15,6 +38,7 @@ export default function OshiBrowse() {
   const [form, setForm] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('') // 推しの名前検索（ジャンル横断）
   const nav = useNavigate()
 
   const reload = () => {
@@ -51,6 +75,10 @@ export default function OshiBrowse() {
   OSHI_GENRES.forEach((g) => { byGenre[g] = [] })
   masters.forEach((m) => { (byGenre[m.genre] || (byGenre[m.genre] = [])).push(m) })
 
+  // 検索：ジャンルを問わず名前の部分一致（英字は大文字小文字を区別しない）
+  const q = query.trim().toLowerCase()
+  const searchResults = q ? masters.filter((m) => m.name.toLowerCase().includes(q)) : null
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -64,12 +92,42 @@ export default function OshiBrowse() {
         <GhostButton onClick={() => nav('/history')}>🕘 イベント履歴</GhostButton>
       </div>
 
+      {/* 第12弾：わたしの推し（ホームと同じ、登録済み推しのアイコン一覧。タップで詳細へ） */}
+      {myOshi.length > 0 && (
+        <Card>
+          <SectionTitle>わたしの推し</SectionTitle>
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {myOshi.map((o) => (
+              <button key={o.id} onClick={() => o.oshi_master_id && nav(`/oshi/${o.oshi_master_id}`)}
+                className="flex flex-col items-center gap-1 shrink-0">
+                <OshiAvatar oshi={o} />
+                <span className="text-[11px] text-ink-soft max-w-14 truncate">{o.name}</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* 第12弾：推しの名前検索（ジャンル横断） */}
+      <input className={inputClass} placeholder="🔍 推しを名前で検索" value={query} onChange={(e) => setQuery(e.target.value)} />
+
       {loading && <Loading label="推しを読み込み中…" />}
       {!loading && masters.length === 0 && (
         <Card><Empty icon="⭐" message={'まだ誰も推しを登録していません。\n最初の登録者になりましょう！'} /></Card>
       )}
 
-      {OSHI_GENRES.map((genre) => {
+      {/* 検索中はジャンルブロックの代わりに検索結果を表示 */}
+      {!loading && searchResults && (
+        searchResults.length === 0 ? (
+          <Card><Empty icon="🔍" message={`「${query.trim()}」に一致する推しは見つかりませんでした`} /></Card>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 stagger">
+            {searchResults.map((m, i) => <MasterTile key={m.id} m={m} i={i} nav={nav} register={register} />)}
+          </div>
+        )
+      )}
+
+      {!searchResults && OSHI_GENRES.map((genre) => {
         const list = byGenre[genre] || []
         if (list.length === 0) return null
         const open = openGenre === genre
@@ -87,25 +145,7 @@ export default function OshiBrowse() {
             {/* タップで展開するポラロイドタイル一覧 */}
             {open && (
               <div className="grid grid-cols-2 gap-3 mt-3 stagger">
-                {list.map((m, i) => (
-                  <div key={m.id} className="polaroid rounded-sm" style={{ transform: `rotate(${i % 2 ? 1.3 : -1.3}deg)` }}>
-                    <button onClick={() => nav(`/oshi/${m.id}`)} className="press aspect-square w-full rounded-sm overflow-hidden flex items-center justify-center"
-                      style={{ backgroundColor: m.display_image ? '#fff' : '#e8dfce' }}>
-                      {m.display_image
-                        ? <img src={m.display_image} alt={m.name} className="w-full h-full object-cover" />
-                        : <span className="text-4xl text-wine/40 font-black">{m.name.slice(0, 1)}</span>}
-                    </button>
-                    <div className="px-1 pt-1.5">
-                      <button onClick={() => nav(`/oshi/${m.id}`)} className="block w-full text-sm font-bold text-ink truncate text-center">{m.name}</button>
-                      <p className="text-[11px] text-ink-soft text-center">{m.registered_count}人が登録中</p>
-                      <div className="mt-1.5 text-center">
-                        {m.mine
-                          ? <span className="text-[11px] text-wine font-bold">✔ 登録済み</span>
-                          : <GhostButton className="w-full py-1 text-xs" onClick={() => register({ name: m.name, genre: m.genre })}>推しに登録</GhostButton>}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                {list.map((m, i) => <MasterTile key={m.id} m={m} i={i} nav={nav} register={register} />)}
               </div>
             )}
           </div>

@@ -14,6 +14,21 @@ export const EVENT_ICONS = {
 
 export const GOODS_CATEGORIES = ['アクスタ', 'CD・DVD', 'Tシャツ', 'タオル', 'ペンライト', '缶バッジ', 'ぬいぐるみ', 'その他']
 
+// 予定の個別リマインドで選べるタイミング（値は「何分前に通知するか」。空文字＝リマインドなし）
+export const REMINDER_OPTIONS = [
+  { value: '', label: 'なし' },
+  { value: '5', label: '5分前' },
+  { value: '15', label: '15分前' },
+  { value: '30', label: '30分前' },
+  { value: '60', label: '1時間前' },
+  { value: '180', label: '3時間前' },
+  { value: '1440', label: '1日前' },
+]
+export function reminderLabel(mins) {
+  const hit = REMINDER_OPTIONS.find((o) => o.value === String(mins))
+  return hit ? hit.label : null
+}
+
 // つぶやきの公開範囲
 export const VISIBILITIES = [
   { key: 'private', label: 'プライベート', icon: '🔒', hint: '自分だけ' },

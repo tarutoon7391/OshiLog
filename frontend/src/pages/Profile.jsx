@@ -13,6 +13,7 @@ export default function Profile({ user, onLogout, onUpdate }) {
   const [bio, setBio] = useState(user.bio || '')
   const [avatar, setAvatar] = useState(user.avatar || '')
   const [isPublic, setIsPublic] = useState(user.is_public !== false)
+  const [autoReject, setAutoReject] = useState(user.auto_reject_requests === true)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [pushMsg, setPushMsg] = useState('')
@@ -25,6 +26,10 @@ export default function Profile({ user, onLogout, onUpdate }) {
   const chooseTheme = (key) => { setTheme(setThemeKey(key)) }
 
   useEffect(() => { api('/oshi').then(setMyOshi).catch(console.error) }, [])
+  // 端末に保存済みのユーザー情報には新しい設定項目が無いことがあるため、サーバーから最新値を取り直す
+  useEffect(() => {
+    api('/me').then((u) => setAutoReject(u.auto_reject_requests === true)).catch(console.error)
+  }, [])
 
   const handleFile = async (e) => {
     const file = e.target.files[0]
@@ -36,7 +41,7 @@ export default function Profile({ user, onLogout, onUpdate }) {
   const save = async (e) => {
     e.preventDefault(); setError(''); setSaved(false)
     try {
-      const updated = await api('/me', { method: 'PUT', body: { display_name: displayName, bio, avatar: avatar || null, is_public: isPublic } })
+      const updated = await api('/me', { method: 'PUT', body: { display_name: displayName, bio, avatar: avatar || null, is_public: isPublic, auto_reject_requests: autoReject } })
       updateStoredUser(updated)
       onUpdate(updated)
       setSaved(true)
@@ -82,6 +87,15 @@ export default function Profile({ user, onLogout, onUpdate }) {
             <p className="text-[10px] text-ink-soft mt-1.5 leading-relaxed">
               非公開にすると、推し友以外にはプロフィール（自己紹介・登録している推し）が見えず、
               おすすめ（マッチング）にも表示されません。すでに推し友の人にはこれまで通り表示されます。
+            </p>
+          </div>
+
+          {/* 第12弾：推し友申請の自動拒否設定 */}
+          <div className="mb-3 bg-paper rounded-xl p-3">
+            <Toggle checked={autoReject} onChange={setAutoReject} label="推し友申請を自動的に拒否する" />
+            <p className="text-[10px] text-ink-soft mt-1.5 leading-relaxed">
+              オンにすると、届いた推し友申請は自動的に拒否されます（通知も届きません）。
+              すでに推し友の人との関係はそのまま変わりません。
             </p>
           </div>
 

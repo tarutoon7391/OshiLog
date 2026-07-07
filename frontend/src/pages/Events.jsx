@@ -27,6 +27,8 @@ export default function Events({ user }) {
   const focusId = Number(params.get('focus')) || null
   const focusRef = useRef(null)
   const [flash, setFlash] = useState(false)
+  // ホームの貯金カードからの遷移（/events?focus=ID&savings=1）で入出金モーダルを自動で開いたか
+  const savingsOpened = useRef(false)
 
   const reload = () => api('/events').then(setEvents).catch(console.error).finally(() => setLoading(false))
   useEffect(() => { reload() }, [])
@@ -38,6 +40,13 @@ export default function Events({ user }) {
     const t = setTimeout(() => setFlash(false), 3000)
     return () => clearTimeout(t)
   }, [loading, focusId])
+
+  // 第12弾：savings=1 付きで遷移してきたら、対象イベントの貯金（入出金）モーダルを1回だけ自動で開く
+  useEffect(() => {
+    if (loading || !focusId || params.get('savings') !== '1' || savingsOpened.current) return
+    const ev = events.find((e) => e.id === focusId)
+    if (ev && ev.joined) { savingsOpened.current = true; openSavings(ev) }
+  }, [loading, focusId, events])
 
   const join = async (ev) => {
     setBusy(ev.id)

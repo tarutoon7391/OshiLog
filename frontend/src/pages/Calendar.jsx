@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api'
-import { EVENT_TYPES, EVENT_ICONS, todayStr, formatDateJa, formatHm } from '../util'
+import { EVENT_TYPES, EVENT_ICONS, REMINDER_OPTIONS, reminderLabel, todayStr, formatDateJa, formatHm } from '../util'
 import { Modal, Field, inputClass, OshiSelect, PrimaryButton, GhostButton, Empty, Avatar, Loading } from '../components/ui'
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
@@ -27,7 +27,7 @@ function monthCells(year, month) {
   return cells
 }
 
-const emptyForm = { title: '', event_type: 'ライブ', event_date: '', oshi_id: null, memo: '', start_time: '', end_time: '', shared_with: [] }
+const emptyForm = { title: '', event_type: 'ライブ', event_date: '', oshi_id: null, memo: '', start_time: '', end_time: '', url: '', reminder_offset_minutes: '', shared_with: [] }
 
 // 開始時刻でソート（時刻未指定＝終日は先頭に）
 const byTime = (a, b) => {
@@ -201,7 +201,11 @@ export default function Calendar() {
   const save = async (e) => {
     e.preventDefault(); setError('')
     try {
-      const body = { ...form, start_time: form.start_time || null, end_time: form.end_time || null }
+      const body = {
+        ...form, start_time: form.start_time || null, end_time: form.end_time || null,
+        url: form.url.trim() || null,
+        reminder_offset_minutes: form.reminder_offset_minutes === '' ? null : Number(form.reminder_offset_minutes),
+      }
       if (form.id) await api(`/schedules/${form.id}`, { method: 'PUT', body })
       else await api('/schedules', { method: 'POST', body })
       setForm(null); reload()
@@ -219,6 +223,8 @@ export default function Calendar() {
     id: s.id, title: s.title, event_type: s.event_type, event_date: s.event_date,
     oshi_id: s.oshi_id, memo: s.memo || '',
     start_time: formatHm(s.start_time) || '', end_time: formatHm(s.end_time) || '',
+    url: s.url || '',
+    reminder_offset_minutes: s.reminder_offset_minutes == null ? '' : String(s.reminder_offset_minutes),
     shared_with: s.shared_user_ids || [],
   })
 
@@ -391,6 +397,14 @@ export default function Calendar() {
                         {s.is_own && s.shared_user_ids && s.shared_user_ids.length > 0 && <span className="ml-1 text-wine">🔗 {s.shared_user_ids.length}人に共有中</span>}
                       </p>
                       {s.memo && <p className="text-[11px] text-ink-soft mt-1">{s.memo}</p>}
+                      {/* 関連URL（チケットサイト・配信ページ等）。設定されているときだけタップできるリンクとして表示 */}
+                      {s.url && (
+                        <a href={s.url} target="_blank" rel="noreferrer"
+                          className="block text-[11px] text-wine underline mt-1 truncate">🔗 {s.url}</a>
+                      )}
+                      {s.is_own && s.reminder_offset_minutes != null && (
+                        <p className="text-[10px] text-ink-soft mt-1">⏰ {reminderLabel(s.reminder_offset_minutes)}に通知</p>
+                      )}
                       {s.is_own && (
                         <div className="flex gap-3 mt-1.5">
                           <button onClick={() => { setDetailDate(null); openEdit(s) }} className="text-[11px] text-wine underline">編集</button>
@@ -447,6 +461,18 @@ export default function Calendar() {
               <input className={inputClass} value={form.memo} maxLength={100}
                 onChange={(e) => setForm({ ...form, memo: e.target.value })} placeholder="例：物販は14時から" />
             </Field>
+            <Field label="関連URL（任意）">
+              <input type="url" className={inputClass} value={form.url} maxLength={500}
+                onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="例：https://ticket.example.com/…" />
+            </Field>
+            <p className="text-[10px] text-ink-soft -mt-2 mb-3">チケットサイトや配信ページなどを保存できます（1日詳細にリンク表示）</p>
+            <Field label="リマインド通知">
+              <select className={inputClass} value={form.reminder_offset_minutes}
+                onChange={(e) => setForm({ ...form, reminder_offset_minutes: e.target.value })}>
+                {REMINDER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </Field>
+            <p className="text-[10px] text-ink-soft -mt-2 mb-3">設定した時間になるとプッシュ通知が届きます（通知オンの場合）。時刻未指定の予定は0:00基準です</p>
 
             {/* 共有設定：フレンド選択式 */}
             <div className="mb-3">

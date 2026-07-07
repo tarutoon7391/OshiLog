@@ -297,6 +297,15 @@ ALTER TABLE events ADD COLUMN IF NOT EXISTS venue_id INTEGER REFERENCES venues(i
 ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS last_reminded_days INTEGER;
 -- 旧方式（reminded=前日通知済み）からの引き継ぎ：当日通知だけは新方式でも届くよう1日前扱いにする
 UPDATE event_participants SET last_reminded_days = 1 WHERE reminded = true AND last_reminded_days IS NULL;
+
+-- 第12弾：予定に関連URL（チケットサイト・配信ページ等。任意）を追加
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS url TEXT;
+-- 第12弾：予定の個別リマインド（何分前に通知するか。NULL＝リマインドなし）。
+-- reminder_sent_at は送信済み印（同じ予定への二重送信を防ぐ。日時やタイミングを変更したらリセット）
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS reminder_offset_minutes INTEGER;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ;
+-- 第12弾：推し友申請を自動的に拒否する設定（デフォルトはオフ）
+ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_reject_requests BOOLEAN NOT NULL DEFAULT false;
 `;
 
 // 既存データ用のバックフィルとシード投入
