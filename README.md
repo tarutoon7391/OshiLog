@@ -52,8 +52,9 @@
 
 ## 💾 主なDBテーブル
 
-`users`(is_admin・is_public・auto_reject_requests等) / `oshi_master`(共有マスター・official_url・goods_url) / `oshi`(個人の推し) /
+`users`(is_admin・is_public・auto_reject_requests・notify_*等) / `oshi_master`(共有マスター・official_url・goods_url) / `oshi`(個人の推し) /
 `schedules`(event_id・start_time・end_time・url・reminder_offset_minutes) / `schedule_shares`(予定の共有先) /
+`notifications`(通知センターの履歴) /
 `records`(event_id) / `goods` / `posts`(visibility・event_id) / `diary_entries`(日記・visibility) /
 `oshi_images`(着せ替え審査) / `user_oshi_display_image`(推しの表示画像をユーザーごとに選択) /
 `friendships` / `chat_rooms` / `chat_room_members` /
@@ -134,6 +135,23 @@ railway up --ci -s web   # リポジトリ直下で実行（Dockerfileでビル�
 - [ ] 通知の種類ごとのON/OFF設定
 
 ## 📜 更新履歴
+
+### 2026-07-07（第15弾：通知ベル＋通知センター＋カテゴリ別オン/オフ）
+- **通知ベルマーク**：ヘッダーのプロフィールアイコンの隣に🔔を常時表示。未読件数をゴールドのバッジで表示
+  （画面遷移時に取得＋新着はSocket `notification:new` で即時反映）
+- **通知センター（/notifications）**：ベルをタップで通知履歴の一覧へ。`notifications` テーブルを新設し、
+  新しい順に既読・未読の両方を表示（未読は太字＋ワインの縁取り＋●で区別）。
+  通知をタップすると**既読にした上で** `link_url` の遷移先へ移動。「すべて既読にする」ボタンあり。
+  既読化はサーバー側で本人確認
+- **全Push通知を通知センターにも記録**：通知送信を `notify.js` に一元化し、
+  推し友申請／推し友成立／トーク（DM）／グループトーク／イベントリマインド／予定の個別リマインド／
+  着せ替え審査結果／推しの新規イベント追加の全てが Push送信と同時に履歴へ記録される。
+  チャット通知のリンク先を `/friends` → `/chat/{roomId}`（該当トーク）に改善
+- **通知カテゴリ別のオン/オフ**：プロフィール設定に4カテゴリのトグルを追加
+  （`users.notify_friend_request / notify_chat_dm / notify_chat_group / notify_event`、デフォルトすべてオン）。
+  **オフのカテゴリは Push送信・通知センターへの記録の両方をスキップ**（履歴にも残らない）。
+  着せ替え審査結果・推しの新規イベント追加・予定の個別リマインド（本人が予定ごとに設定するもの）は
+  オン/オフの対象外で常に有効
 
 ### 2026-07-07（第14弾：カテゴリ内の人気順表示＋イベント重要度の色分け）
 - **同じカテゴリー内のおすすめ表示**：推し画面の各ジャンル内・検索結果を**登録人数の多い順（人気順）**で表示。

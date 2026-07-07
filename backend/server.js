@@ -6,6 +6,7 @@ const express = require('express');
 const { pool, initDb } = require('./db');
 const { hashPassword, verifyPassword, signToken, verifyToken } = require('./auth');
 const push = require('./push');
+const notify = require('./notify'); // 第15弾：Push＋通知センター記録＋カテゴリ判定の一元窓口
 const realtime = require('./realtime');
 const ai = require('./ai');
 
@@ -96,24 +97,33 @@ app.post('/api/login', wrap(async (req, res) => {
   res.json({ user, token: signToken(user.id) });
 }));
 
+// /me で返す・更新できるユーザー設定カラム（第15弾で通知カテゴリ設定を追加）
+const ME_COLUMNS = 'id, username, display_name, avatar, bio, is_admin, is_client, is_public, auto_reject_requests, notify_friend_request, notify_chat_dm, notify_chat_group, notify_event';
+
 app.get('/api/me', auth, wrap(async (req, res) => {
-  const r = await pool.query(
-    'SELECT id, username, display_name, avatar, bio, is_admin, is_client, is_public, auto_reject_requests FROM users WHERE id = $1', [req.userId]);
+  const r = await pool.query(`SELECT ${ME_COLUMNS} FROM users WHERE id = $1`, [req.userId]);
   if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
   res.json(r.rows[0]);
 }));
 
 app.put('/api/me', auth, wrap(async (req, res) => {
-  const { display_name, avatar, bio, is_public, auto_reject_requests } = req.body;
+  const { display_name, avatar, bio, is_public, auto_reject_requests,
+          notify_friend_request, notify_chat_dm, notify_chat_group, notify_event } = req.body;
+  const asBool = (v) => (typeof v === 'boolean' ? v : null); // boolean以外は「変更なし」扱い
   const r = await pool.query(
     `UPDATE users SET display_name = COALESCE($1, display_name), avatar = $2, bio = $3,
             is_public = COALESCE($4, is_public),
-            auto_reject_requests = COALESCE($5, auto_reject_requests), updated_at = now()
-     WHERE id = $6 RETURNING id, username, display_name, avatar, bio, is_admin, is_client, is_public, auto_reject_requests`,
+            auto_reject_requests = COALESCE($5, auto_reject_requests),
+            notify_friend_request = COALESCE($6, notify_friend_request),
+            notify_chat_dm = COALESCE($7, notify_chat_dm),
+            notify_chat_group = COALESCE($8, notify_chat_group),
+            notify_event = COALESCE($9, notify_event), updated_at = now()
+     WHERE id = $10 RETURNING ${ME_COLUMNS}`,
     [display_name ? String(display_name).slice(0, 20) : null, avatar || null,
      bio ? String(bio).slice(0, 200) : null,
-     typeof is_public === 'boolean' ? is_public : null,
-     typeof auto_reject_requests === 'boolean' ? auto_reject_requests : null, req.userId]);
+     asBool(is_public), asBool(auto_reject_requests),
+     asBool(notify_friend_request), asBool(notify_chat_dm), asBool(notify_chat_group), asBool(notify_event),
+     req.userId]);
   res.json(r.rows[0]);
 }));
 
@@ -551,7 +561,9 @@ app.post('/api/friends/request', auth, wrap(async (req, res) => {
     [req.userId, addressee]);
   const me = await pool.query('SELECT display_name FROM users WHERE id = $1', [req.userId]);
   realtime.emitToUser(addressee, 'friend:request', { from: me.rows[0].display_name });
-  push.sendToUsers(pool, [addressee], { title: '👥 推し友申請', body: `${me.rows[0].display_name}さんから申請が届きました`, url: '/friends' });
+  notify.send(pool, [addressee],
+    { title: '👥 推し友申請', body: `${me.rows[0].display_name}さんから申請が届きました`, url: '/friends' },
+    { type: 'friend_request', category: 'friend_request' });
   res.status(201).json({ ok: true });
 }));
 
@@ -572,7 +584,9 @@ app.post('/api/friends/:id/accept', auth, wrap(async (req, res) => {
 
   const me = await pool.query('SELECT display_name FROM users WHERE id = $1', [req.userId]);
   realtime.emitToUser(fr.requester_id, 'friend:accepted', { by: me.rows[0].display_name });
-  push.sendToUsers(pool, [fr.requester_id], { title: '🎉 推し友成立', body: `${me.rows[0].display_name}さんと推し友になりました`, url: '/friends' });
+  notify.send(pool, [fr.requester_id],
+    { title: '🎉 推し友成立', body: `${me.rows[0].display_name}さんと推し友になりました`, url: '/friends' },
+    { type: 'friend_accepted', category: 'friend_request' });
   res.json({ ok: true, room_id: roomId });
 }));
 
@@ -935,11 +949,12 @@ app.post('/api/events', auth, admin, wrap(async (req, res) => {
     const targets = await pool.query(
       'SELECT DISTINCT user_id FROM oshi WHERE oshi_master_id = $1', [ev.artist_id]);
     if (m.rows.length && targets.rows.length) {
-      push.sendToUsers(pool, targets.rows.map((t) => t.user_id), {
+      // 推しの新規イベント追加通知は、カテゴリ別オン/オフの対象外（常に有効）
+      notify.send(pool, targets.rows.map((t) => t.user_id), {
         title: '🎪 新しいイベント',
         body: `${m.rows[0].name}の新しいイベント「${ev.name}」が追加されました`,
         url: `/events?focus=${ev.id}`,
-      });
+      }, { type: 'new_event' });
       console.log(`イベント追加通知: event_id=${ev.id} 対象${targets.rows.length}人`);
     }
   }
@@ -1304,15 +1319,16 @@ app.post('/api/admin/oshi-images/:id/:action', auth, admin, wrap(async (req, res
     await pool.query('UPDATE oshi_master SET image_url = COALESCE(image_url, $1) WHERE id = $2',
       [img.image_url, img.oshi_master_id]);
   }
-  // 第8弾：審査結果を投稿者本人へプッシュ通知（同じ状態への再操作では送らない）
+  // 第8弾：審査結果を投稿者本人へプッシュ通知（同じ状態への再操作では送らない）。
+  // 第15弾：カテゴリ別オン/オフの対象外（常に有効）
   if (img.submitted_by && img.status !== status) {
     const m = await pool.query('SELECT name FROM oshi_master WHERE id = $1', [img.oshi_master_id]);
     const oshiName = m.rows.length ? m.rows[0].name : '推し';
-    push.sendToUsers(pool, [img.submitted_by], {
+    notify.send(pool, [img.submitted_by], {
       title: status === 'approved' ? '✅ 着せ替え画像の審査結果' : '🖼️ 着せ替え画像の審査結果',
       body: status === 'approved' ? `${oshiName}の画像が承認されました` : `${oshiName}の画像は却下されました`,
       url: `/oshi/${img.oshi_master_id}`,
-    });
+    }, { type: 'oshi_image_review' });
   }
   res.json({ ok: true });
 }));
@@ -1363,6 +1379,37 @@ app.put('/api/admin/oshi-master/:id', auth, admin, wrap(async (req, res) => {
     [name, genre || null, official_url || null, goods_url || null, image_url || null, req.params.id]);
   if (!r.rows.length) return res.status(404).json({ error: '見つかりません' });
   res.json(r.rows[0]);
+}));
+
+// =========================================================
+// 通知センター（第15弾）
+// =========================================================
+// 自分の通知履歴（新しい順・既読/未読の両方）
+app.get('/api/notifications', auth, wrap(async (req, res) => {
+  const r = await pool.query(
+    `SELECT id, type, title, body, link_url, is_read, created_at
+     FROM notifications WHERE user_id = $1 ORDER BY id DESC LIMIT 50`, [req.userId]);
+  res.json(r.rows);
+}));
+
+// 未読件数（ヘッダーのベルのバッジ用）
+app.get('/api/notifications/unread-count', auth, wrap(async (req, res) => {
+  const r = await pool.query(
+    'SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND is_read = false', [req.userId]);
+  res.json({ count: r.rows[0].count });
+}));
+
+// 1件既読にする（本人の通知のみ・サーバー側で確認）
+app.post('/api/notifications/:id/read', auth, wrap(async (req, res) => {
+  await pool.query('UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2',
+    [req.params.id, req.userId]);
+  res.json({ ok: true });
+}));
+
+// すべて既読にする
+app.post('/api/notifications/read-all', auth, wrap(async (req, res) => {
+  await pool.query('UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false', [req.userId]);
+  res.json({ ok: true });
 }));
 
 // =========================================================
@@ -1434,11 +1481,12 @@ async function sendEventReminders() {
       if (!REMINDER_STAGES.includes(r.days_left)) continue;
       // この段階（またはより直前の段階）を通知済みならスキップ
       if (r.last_reminded_days !== null && r.last_reminded_days <= r.days_left) continue;
-      await push.sendToUsers(pool, [r.user_id], {
+      // 第15弾：「イベント通知」カテゴリをオフにしているユーザーには送信も記録もしない
+      await notify.send(pool, [r.user_id], {
         title: reminderTitle(r.days_left),
         body: `${r.name}（${r.event_date}）`,
         url: `/events?focus=${r.event_id}`,
-      });
+      }, { type: 'event_reminder', category: 'event' });
       await pool.query(
         'UPDATE event_participants SET last_reminded_days = $1, reminded = true WHERE id = $2',
         [r.days_left, r.id]);
@@ -1481,11 +1529,12 @@ async function sendScheduleReminders() {
       if (!claimed.rows.length) continue; // 別の実行が先に送信済み
       const [, m, d] = s.event_date.split('-').map(Number); // event_date は 'YYYY-MM-DD' 文字列
       const when = `${m}/${d}${s.start_time ? ' ' + String(s.start_time).slice(0, 5) : ''}`;
-      await push.sendToUsers(pool, [s.user_id], {
+      // 予定の個別リマインドは本人が予定ごとに設定したものなので、カテゴリ別オン/オフの対象外
+      await notify.send(pool, [s.user_id], {
         title: `⏰ 予定リマインド（${scheduleReminderLabel(s.reminder_offset_minutes)}）`,
         body: `${s.title}（${when}）`,
         url: '/calendar',
-      });
+      }, { type: 'schedule_reminder' });
     }
   } catch (e) {
     console.error('予定リマインド送信エラー:', e);

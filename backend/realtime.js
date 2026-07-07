@@ -1,7 +1,7 @@
 // Socket.ioによるリアルタイム基盤
 // - チャット（DM・イベント）とつぶやきのリアルタイム反映を同じサーバーで扱う
 // - 公開範囲の判定は「どのルームにemitするか」で表現し、タイムライン取得時の判定と揃える
-const push = require('./push');
+const notify = require('./notify'); // 第15弾：チャット通知もカテゴリ判定＋通知センター記録を通す
 
 let io = null;
 let pool = null;
@@ -86,15 +86,18 @@ function init(server, pgPool) {
         io.to(`room_${roomId}`).emit('chat:message', full);
         cb && cb({ ok: true, message: full });
 
-        // 同室の他メンバーへプッシュ通知
+        // 同室の他メンバーへプッシュ通知＋通知センター記録。
+        // DM（トーク）とイベントのグループトークで通知カテゴリを分ける（第15弾）
         const others = await pool.query(
           'SELECT user_id FROM chat_room_members WHERE room_id = $1 AND user_id <> $2', [roomId, socket.userId]);
+        const room = await pool.query('SELECT type FROM chat_rooms WHERE id = $1', [roomId]);
+        const isGroup = room.rows.length && room.rows[0].type === 'event';
         const preview = content ? content.slice(0, 80) : (attType === 'image' ? '📷 画像' : attType === 'video' ? '🎬 動画' : '📎 ファイル');
-        push.sendToUsers(pool, others.rows.map((r) => r.user_id), {
+        notify.send(pool, others.rows.map((r) => r.user_id), {
           title: `💬 ${full.sender_name}`,
           body: preview,
-          url: '/friends',
-        });
+          url: `/chat/${roomId}`,
+        }, { type: 'chat_message', category: isGroup ? 'chat_group' : 'chat_dm' });
       } catch (e) {
         console.error(e);
         cb && cb({ error: '送信に失敗しました' });

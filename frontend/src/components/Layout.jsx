@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { api } from '../api'
+import { getSocket } from '../socket'
 import { Avatar } from './ui'
 import PullToRefresh from './PullToRefresh.jsx'
 
@@ -15,16 +18,39 @@ const tabs = [
 export default function Layout({ user, children }) {
   const nav = useNavigate()
   const location = useLocation()
+
+  // 第15弾：通知ベルの未読件数。画面遷移のたびに取り直し、
+  // 新しい通知が届いたらSocket（notification:new）で即時更新する
+  const [unread, setUnread] = useState(0)
+  useEffect(() => {
+    let alive = true
+    api('/notifications/unread-count').then((r) => { if (alive) setUnread(r.count) }).catch(() => {})
+    const s = getSocket()
+    const onNew = () => api('/notifications/unread-count').then((r) => { if (alive) setUnread(r.count) }).catch(() => {})
+    if (s) s.on('notification:new', onNew)
+    return () => { alive = false; if (s) s.off('notification:new', onNew) }
+  }, [location.pathname])
+
   return (
     <div className="h-[100dvh] w-full flex justify-center bg-paper">
       <div className="w-full max-w-md h-full flex flex-col bg-paper/40 shadow-xl relative overflow-hidden">
-        {/* 固定ヘッダー。右上のユーザーアイコンからマイページへ */}
+        {/* 固定ヘッダー。通知ベル（未読バッジつき）＋ユーザーアイコン（マイページへ） */}
         <header className="shrink-0 bg-wine text-white px-4 py-3 flex items-center justify-between z-20">
           <h1 className="font-bold text-lg tracking-wide">💗 推しログ</h1>
-          <button onClick={() => nav('/mypage')} className="flex items-center gap-2">
-            <span className="text-xs text-white/90 max-w-24 truncate">{user.display_name || user.username}</span>
-            <Avatar image={user.avatar} name={user.display_name || user.username} color="#6e2c39" size="w-8 h-8" textSize="text-sm" />
-          </button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => nav('/notifications')} aria-label="通知" className="relative press">
+              <span className="text-xl leading-none">🔔</span>
+              {unread > 0 && (
+                <span className="absolute -top-1.5 -right-2 bg-gold text-white text-[9px] font-bold rounded-full min-w-4 h-4 px-1 flex items-center justify-center border border-white/60">
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+            </button>
+            <button onClick={() => nav('/mypage')} className="flex items-center gap-2">
+              <span className="text-xs text-white/90 max-w-24 truncate">{user.display_name || user.username}</span>
+              <Avatar image={user.avatar} name={user.display_name || user.username} color="#6e2c39" size="w-8 h-8" textSize="text-sm" />
+            </button>
+          </div>
         </header>
 
         {/* スクロールするコンテンツ領域（ここだけがスクロール／上端で引っ張ると更新）。

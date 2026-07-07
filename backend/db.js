@@ -310,6 +310,26 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_reject_requests BOOLEAN NOT NULL
 -- 第14弾：参加イベントごとの重要度（normal / important / very_important）。
 -- 重要度に応じてカレンダー・ホーム・イベント一覧などの表示色が変わる
 ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS importance TEXT NOT NULL DEFAULT 'normal';
+
+-- 第15弾：通知センター（アプリ内の通知履歴）。Web Push送信と同時に記録される
+CREATE TABLE IF NOT EXISTS notifications (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT,
+  link_url TEXT,
+  is_read BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (user_id, id DESC);
+
+-- 第15弾：通知カテゴリ別のオン/オフ（すべてデフォルトはオン）。
+-- オフのカテゴリは Push送信・通知センターへの記録の両方をスキップする
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_friend_request BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_chat_dm BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_chat_group BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_event BOOLEAN NOT NULL DEFAULT true;
 `;
 
 // 既存データ用のバックフィルとシード投入

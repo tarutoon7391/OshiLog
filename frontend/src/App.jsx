@@ -26,6 +26,7 @@ import OshiDetail from './pages/OshiDetail.jsx'
 import EventHistory from './pages/EventHistory.jsx'
 import AlbumView from './pages/AlbumView.jsx'
 import UserProfile from './pages/UserProfile.jsx'
+import Notifications from './pages/Notifications.jsx'
 
 export default function App() {
   const [user, setUser] = useState(getUser)
@@ -67,6 +68,7 @@ export default function App() {
           <Route path="/mypage" element={<MyPage user={user} />} />
           <Route path="/savings" element={<SavingsSupport />} />
           <Route path="/blocks" element={<Blocks />} />
+          <Route path="/notifications" element={<Notifications />} />
           <Route path="/profile" element={<Profile user={user} onLogout={handleLogout} onUpdate={refreshUser} />} />
           <Route path="/admin" element={user.is_admin ? <Admin /> : <Navigate to="/" replace />} />
           <Route path="/guide" element={<ClientMenu />} />

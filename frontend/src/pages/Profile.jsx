@@ -14,6 +14,10 @@ export default function Profile({ user, onLogout, onUpdate }) {
   const [avatar, setAvatar] = useState(user.avatar || '')
   const [isPublic, setIsPublic] = useState(user.is_public !== false)
   const [autoReject, setAutoReject] = useState(user.auto_reject_requests === true)
+  // 第15弾：通知カテゴリ別のオン/オフ（オフにするとPush送信・通知センター記録の両方がスキップされる）
+  const [notifyPrefs, setNotifyPrefs] = useState({
+    notify_friend_request: true, notify_chat_dm: true, notify_chat_group: true, notify_event: true,
+  })
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [pushMsg, setPushMsg] = useState('')
@@ -28,7 +32,15 @@ export default function Profile({ user, onLogout, onUpdate }) {
   useEffect(() => { api('/oshi').then(setMyOshi).catch(console.error) }, [])
   // 端末に保存済みのユーザー情報には新しい設定項目が無いことがあるため、サーバーから最新値を取り直す
   useEffect(() => {
-    api('/me').then((u) => setAutoReject(u.auto_reject_requests === true)).catch(console.error)
+    api('/me').then((u) => {
+      setAutoReject(u.auto_reject_requests === true)
+      setNotifyPrefs({
+        notify_friend_request: u.notify_friend_request !== false,
+        notify_chat_dm: u.notify_chat_dm !== false,
+        notify_chat_group: u.notify_chat_group !== false,
+        notify_event: u.notify_event !== false,
+      })
+    }).catch(console.error)
   }, [])
 
   const handleFile = async (e) => {
@@ -41,7 +53,7 @@ export default function Profile({ user, onLogout, onUpdate }) {
   const save = async (e) => {
     e.preventDefault(); setError(''); setSaved(false)
     try {
-      const updated = await api('/me', { method: 'PUT', body: { display_name: displayName, bio, avatar: avatar || null, is_public: isPublic, auto_reject_requests: autoReject } })
+      const updated = await api('/me', { method: 'PUT', body: { display_name: displayName, bio, avatar: avatar || null, is_public: isPublic, auto_reject_requests: autoReject, ...notifyPrefs } })
       updateStoredUser(updated)
       onUpdate(updated)
       setSaved(true)
@@ -96,6 +108,27 @@ export default function Profile({ user, onLogout, onUpdate }) {
             <p className="text-[10px] text-ink-soft mt-1.5 leading-relaxed">
               オンにすると、届いた推し友申請は自動的に拒否されます（通知も届きません）。
               すでに推し友の人との関係はそのまま変わりません。
+            </p>
+          </div>
+
+          {/* 第15弾：通知カテゴリ別のオン/オフ */}
+          <div className="mb-3 bg-paper rounded-xl p-3 space-y-2.5">
+            <p className="text-sm font-bold text-wine">通知の種類</p>
+            <Toggle checked={notifyPrefs.notify_friend_request}
+              onChange={(v) => setNotifyPrefs({ ...notifyPrefs, notify_friend_request: v })}
+              label="👥 推し友申請（申請・承認）" />
+            <Toggle checked={notifyPrefs.notify_chat_dm}
+              onChange={(v) => setNotifyPrefs({ ...notifyPrefs, notify_chat_dm: v })}
+              label="💬 トーク（推し友とのDM）" />
+            <Toggle checked={notifyPrefs.notify_chat_group}
+              onChange={(v) => setNotifyPrefs({ ...notifyPrefs, notify_chat_group: v })}
+              label="🎪 グループトーク（イベント参加者）" />
+            <Toggle checked={notifyPrefs.notify_event}
+              onChange={(v) => setNotifyPrefs({ ...notifyPrefs, notify_event: v })}
+              label="⏰ イベント通知（開催リマインド）" />
+            <p className="text-[10px] text-ink-soft leading-relaxed">
+              オフにした種類は、プッシュ通知が届かず通知センターの履歴にも残りません。
+              着せ替え画像の審査結果と推しの新規イベント追加のお知らせは常に届きます。
             </p>
           </div>
 
