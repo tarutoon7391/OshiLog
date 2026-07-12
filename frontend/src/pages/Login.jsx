@@ -19,8 +19,11 @@ export default function Login({ onLogin }) {
     setError(''); setLoading(true)
     try {
       const path = mode === 'login' ? '/login' : '/register'
+      // クイックログイン表示中は、選択中アカウント（picked）のIDを必ず使う。
+      // username state は初期表示や「保存済みアカウントから選ぶ」で戻ったときに
+      // 空のままのことがあり、そのまま送るとパスワードが正しくてもログインに失敗するため
       const body = mode === 'login'
-        ? { username, password }
+        ? { username: showQuick ? picked.username : username, password }
         : { username, password, display_name: displayName }
       const auth = await api(path, { method: 'POST', body })
       onLogin(auth)
@@ -104,7 +107,9 @@ export default function Login({ onLogin }) {
               {loading ? '処理中...' : mode === 'login' ? 'ログイン' : '登録してはじめる'}
             </PrimaryButton>
             {mode === 'login' && accounts.length > 0 && (
-              <button type="button" onClick={() => setPicked(accounts[0])} className="w-full text-center text-wine text-xs underline">保存済みアカウントから選ぶ</button>
+              // picked と username を必ずセットで更新する（ズレるとログインに失敗する）
+              <button type="button" onClick={() => { setPicked(accounts[0]); setUsername(accounts[0].username) }}
+                className="w-full text-center text-wine text-xs underline">保存済みアカウントから選ぶ</button>
             )}
           </form>
         )}
