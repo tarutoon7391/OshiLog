@@ -13,6 +13,10 @@
   /* 第10弾：箔押し・マステ風のワンポイント用ゴールド（マットな金。蛍光ではない） */
   --color-gold: #b9962e;
   --color-gold-soft: #e9dcae;
+  /* 第10弾改良版：ポップな差し色パープル（Twitchブランドカラー付近）。
+     未読バッジ・タップ時のグロウなど「少量のワンポイント」専用。
+     ベースの紙×ワイン×金を置き換える用途では使わない */
+  --color-pop: #9146ff;
 }
 
 html, body, #root {
@@ -190,6 +194,103 @@ body {
 }
 .fruit-bob { animation: fruit-bob 2.6s ease-in-out infinite alternate; }
 
+/* ===== 第10弾改良版：マイクロインタラクションの上乗せ（transform/opacityのみで軽量に） ===== */
+
+/* 通知ベルが「リンッ」と揺れる（新しい通知が届いた瞬間だけ再生） */
+@keyframes bell-swing {
+  0%   { transform: rotate(0); }
+  20%  { transform: rotate(14deg); }
+  40%  { transform: rotate(-10deg); }
+  60%  { transform: rotate(6deg); }
+  80%  { transform: rotate(-3deg); }
+  100% { transform: rotate(0); }
+}
+.bell-swing { display: inline-block; animation: bell-swing 0.9s ease-in-out; transform-origin: top center; }
+
+/* 未読バッジがぽんっと出る（件数が変わるたびに再生） */
+@keyframes badge-pop {
+  from { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.25); opacity: 1; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.badge-pop { animation: badge-pop 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+/* ボトムナビ：選んだタブのアイコンが小さく跳ねる */
+@keyframes nav-bounce {
+  0%   { transform: translateY(0) scale(1); }
+  35%  { transform: translateY(-3px) scale(1.12); }
+  70%  { transform: translateY(1px) scale(0.98); }
+  100% { transform: translateY(0) scale(1); }
+}
+.nav-bounce { animation: nav-bounce 0.35s ease-out; }
+
+/* 選択中タブの上のゴールドバーを「マステを貼る」ように左から伸ばす */
+@keyframes tape-in {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.tape-in { animation: tape-in 0.25s ease-out; transform-origin: left center; }
+
+/* モーダルの背景（暗幕）をふわっと出す */
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.backdrop-in { animation: backdrop-in 0.2s ease-out; }
+
+/* 進捗バーが左から伸びる（初回表示時） */
+@keyframes bar-grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.bar-grow { animation: bar-grow 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; transform-origin: left center; }
+
+/* 箔押しの光沢が一度だけ走る（進捗バーが伸びきった後に） */
+@keyframes foil-sweep {
+  to { transform: translateX(480%); }
+}
+.foil-shine {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 36%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: translateX(-160%);
+  animation: foil-sweep 0.9s 0.75s ease-out both;
+  pointer-events: none;
+}
+
+/* 判子をトンと押すような登場（AI相談FABなど） */
+@keyframes pop-in {
+  from { transform: scale(0.5) rotate(-10deg); opacity: 0; }
+  60%  { transform: scale(1.08) rotate(2deg); opacity: 1; }
+  to   { transform: scale(1) rotate(0); opacity: 1; }
+}
+.pop-in { animation: pop-in 0.4s 0.15s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+
+/* 判子演出のまわりをハートが舞い上がる（参戦記録の登録時） */
+@keyframes heart-float {
+  from { transform: translateY(10px) scale(0.6) rotate(0); opacity: 0; }
+  30%  { opacity: 1; }
+  to   { transform: translateY(-46px) scale(1.05) rotate(10deg); opacity: 0; }
+}
+.heart-float { animation: heart-float 0.9s ease-out both; }
+
+/* ログイン画面のロゴがゆっくり鼓動する */
+@keyframes heart-beat {
+  0%, 48%, 100% { transform: scale(1); }
+  12% { transform: scale(1.1); }
+  24% { transform: scale(1); }
+  36% { transform: scale(1.06); }
+}
+.heart-beat { display: inline-block; animation: heart-beat 2.2s ease-in-out infinite; }
+
+/* ふわふわ上下する（空っぽ表示のアイコンなど。果実の揺れと同じ動き） */
+.bob-soft { animation: fruit-bob 2.6s ease-in-out infinite alternate; }
+
+/* タップした瞬間、パープルのグロウがふわっと出る（主ボタン・FAB用のワンポイント） */
+.tap-pop { transition: box-shadow 0.15s ease; }
+/* pressと併用したときに transition が上書きし合わないよう、まとめて指定し直す */
+.press.tap-pop { transition: transform 0.12s ease, filter 0.15s ease, box-shadow 0.15s ease; }
+.tap-pop:active { box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-pop) 30%, transparent); }
+
 /* 視差・拡大演出が苦手な設定の端末ではアニメーションを無効化する */
 @media (prefers-reduced-motion: reduce) {
   .cal-zoom-in, .cal-zoom-out { animation: none; }
@@ -198,4 +299,7 @@ body {
   .fruit-bob { animation: none; }
   .fade-up, .stagger > *, .sheet-up, .page-in, .stamp-once, .toast-in, .toast-out { animation: none; }
   .press, .press:active { transition: none; transform: none; }
+  /* 第10弾改良版で追加した分も無効化する */
+  .bell-swing, .badge-pop, .nav-bounce, .tape-in, .backdrop-in,
+  .bar-grow, .foil-shine, .pop-in, .heart-float, .heart-beat, .bob-soft { animation: none; }
 }

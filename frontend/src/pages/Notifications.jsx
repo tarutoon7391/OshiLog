@@ -54,7 +54,8 @@ export default function Notifications() {
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-[10px] text-ink-soft">{formatTime(n.created_at)}</p>
-                  {!n.is_read && <span className="inline-block w-2 h-2 rounded-full bg-wine mt-1" />}
+                  {/* 未読の目印はポップな差し色パープル（ヘッダーの未読バッジと揃える） */}
+                  {!n.is_read && <span className="inline-block w-2 h-2 rounded-full bg-pop mt-1" />}
                 </div>
               </div>
             </button>

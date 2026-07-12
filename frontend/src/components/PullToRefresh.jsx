@@ -66,11 +66,13 @@ export default function PullToRefresh({ children, className = '' }) {
             style={{ transform: `scale(${refreshing ? 1 : 0.7 + progress * 0.3})`, transition: dragging ? 'none' : 'transform 0.2s ease' }}>
             {/* 下地の薄い円 */}
             <circle cx="12" cy="12" r={R} fill="none" stroke="var(--color-tag, #d8c7b0)" strokeWidth="2.5" opacity="0.35" />
-            {/* 進捗リング（12時から時計回りに溜まる） */}
-            <circle cx="12" cy="12" r={R} fill="none" stroke="var(--color-wine, #8b3a4a)" strokeWidth="2.5"
+            {/* 進捗リング（12時から時計回りに溜まる）。
+                満タン＝離せば更新のサインとして、差し色パープルに変わる */}
+            <circle cx="12" cy="12" r={R} fill="none"
+              stroke={progress >= 1 ? 'var(--color-pop, #9146ff)' : 'var(--color-wine, #8b3a4a)'} strokeWidth="2.5"
               strokeLinecap="round" strokeDasharray={C} strokeDashoffset={dashoffset}
               transform="rotate(-90 12 12)"
-              style={{ transition: dragging ? 'none' : 'stroke-dashoffset 0.2s ease' }} />
+              style={{ transition: dragging ? 'stroke 0.15s ease' : 'stroke-dashoffset 0.2s ease, stroke 0.15s ease' }} />
           </svg>
         </div>
       </div>

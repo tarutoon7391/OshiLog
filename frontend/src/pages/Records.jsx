@@ -37,9 +37,9 @@ export default function Records() {
     try {
       await api('/records', { method: 'POST', body: form })
       setForm(null); reload()
-      // 記録できた合図として「参戦記録」の判子をトンと押す
+      // 記録できた合図として「参戦記録」の判子をトンと押す（ハートが舞い終わるまで表示）
       setStamped(true)
-      setTimeout(() => setStamped(false), 1100)
+      setTimeout(() => setStamped(false), 1600)
     } catch (err) { setError(err.message) }
   }
   const remove = async (r) => {
@@ -59,8 +59,8 @@ export default function Records() {
       </div>
 
       <div className="grid grid-cols-2 bg-paper rounded-xl p-1 text-sm font-bold">
-        <button className={`rounded-lg py-1.5 ${tab === 'list' ? 'bg-wine text-white' : 'text-ink-soft'}`} onClick={() => setTab('list')}>📝 記録</button>
-        <button className={`rounded-lg py-1.5 ${tab === 'chart' ? 'bg-wine text-white' : 'text-ink-soft'}`} onClick={() => setTab('chart')}>📊 集計</button>
+        <button className={`press rounded-lg py-1.5 transition-colors ${tab === 'list' ? 'bg-wine text-white' : 'text-ink-soft'}`} onClick={() => setTab('list')}>📝 記録</button>
+        <button className={`press rounded-lg py-1.5 transition-colors ${tab === 'chart' ? 'bg-wine text-white' : 'text-ink-soft'}`} onClick={() => setTab('chart')}>📊 集計</button>
       </div>
 
       {tab === 'list' && (
@@ -95,13 +95,20 @@ export default function Records() {
         </>
       )}
 
-      {/* 登録直後の判子演出（画面中央にトンと押されて消える） */}
+      {/* 登録直後の判子演出（画面中央にトンと押されて消える。
+          第10弾改良版：判子のまわりをハートが舞い上がる） */}
       {stamped && (
         <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-          <div className="stamp-once w-36 h-36 rounded-full border-4 border-wine/85 bg-paper-card/70 flex flex-col items-center justify-center"
-            style={{ boxShadow: 'inset 0 0 0 3px rgba(150, 50, 78, 0.35)' }}>
-            <span className="text-3xl font-black text-wine tracking-widest">参戦</span>
-            <span className="text-xl font-bold text-wine tracking-[0.3em] mt-1">記録!</span>
+          <div className="relative">
+            <div className="stamp-once w-36 h-36 rounded-full border-4 border-wine/85 bg-paper-card/70 flex flex-col items-center justify-center"
+              style={{ boxShadow: 'inset 0 0 0 3px rgba(150, 50, 78, 0.35)' }}>
+              <span className="text-3xl font-black text-wine tracking-widest">参戦</span>
+              <span className="text-xl font-bold text-wine tracking-[0.3em] mt-1">記録!</span>
+            </div>
+            {/* 判子が押されたあと、時間差でハートがふわっと舞う（配色に合わせた3色） */}
+            <span className="heart-float absolute -top-2 left-2 text-2xl" style={{ animationDelay: '0.35s' }}>💗</span>
+            <span className="heart-float absolute -top-4 right-1 text-lg" style={{ animationDelay: '0.5s' }}>💜</span>
+            <span className="heart-float absolute -top-1 left-1/2 text-xl" style={{ animationDelay: '0.65s' }}>💛</span>
           </div>
         </div>
       )}

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { api } from '../api'
 import { daysUntil, formatDateJa, formatYen, currentMonth, formatHm, EVENT_ICONS, importanceColor, importanceMark } from '../util'
-import { Card, OshiAvatar, Empty, Loading, ProgressBar, PrimaryButton } from '../components/ui'
+import { Card, OshiAvatar, Empty, Loading, ProgressBar, PrimaryButton, CountUp } from '../components/ui'
 
 // 予定1件の控えめな行表示（今日の予定・直近の予定モーダルで共通）。
 // 第14弾：重要度が設定されたイベント予定は縁取り色と星印で目立たせる
@@ -210,7 +210,7 @@ export default function Home({ user }) {
                 {todays.length > 0 ? (
                   <span className="text-3xl font-black">🎉 本日です！</span>
                 ) : (
-                  <>あと <span className="text-6xl font-black align-middle">{daysUntil(nearest.event_date)}</span> 日</>
+                  <>あと <CountUp className="text-6xl font-black align-middle" value={daysUntil(nearest.event_date)} format={(n) => n} duration={500} /> 日</>
                 )}
               </p>
             </div>
@@ -265,7 +265,8 @@ export default function Home({ user }) {
       {open?.key === 'month' && (
         <FruitZoomModal title="今月の推し活費" origin={open.origin} onClose={close}>
           <p className="text-xs text-ink-soft">今月の推し活費（参戦記録の合計）</p>
-          <p className="text-3xl font-black text-wine mt-1">{formatYen(monthTotal)}</p>
+          {/* 金額がカラカラっとカウントアップする */}
+          <p className="text-3xl font-black text-wine mt-1"><CountUp value={monthTotal} format={formatYen} /></p>
           <PrimaryButton className="w-full mt-4" onClick={() => nav('/records')}>家計簿を見る</PrimaryButton>
         </FruitZoomModal>
       )}
@@ -273,7 +274,7 @@ export default function Home({ user }) {
       {open?.key === 'oshiCount' && (
         <FruitZoomModal title="推している人" origin={open.origin} onClose={close}>
           <p className="text-xs text-ink-soft">いま推している人</p>
-          <p className="text-3xl font-black text-wine mt-1">{oshiList.length} 人</p>
+          <p className="text-3xl font-black text-wine mt-1"><CountUp value={oshiList.length} format={(n) => n} duration={500} /> 人</p>
           <PrimaryButton className="w-full mt-4" onClick={() => nav('/oshi')}>推しをさがす・見る</PrimaryButton>
         </FruitZoomModal>
       )}

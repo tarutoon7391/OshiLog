@@ -38,7 +38,7 @@ export default function PushToasts() {
         <button
           key={t.id}
           onClick={() => open(t)}
-          className={`${t.leaving ? 'toast-out' : 'toast-in'} pointer-events-auto w-full text-left bg-paper-card border border-paper-line border-l-4 border-l-wine rounded-xl shadow-lg px-3 py-2.5`}
+          className={`${t.leaving ? 'toast-out' : 'toast-in'} pointer-events-auto w-full text-left bg-paper-card border border-paper-line border-l-4 border-l-wine rounded-xl shadow-lg px-3 py-2.5 -rotate-[0.4deg]`}
         >
           <p className="text-sm font-bold text-ink truncate">{t.title}</p>
           {t.body && <p className="text-xs text-ink-soft mt-0.5 line-clamp-2 break-words">{t.body}</p>}

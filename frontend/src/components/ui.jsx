@@ -1,4 +1,5 @@
 // 画面共通の小さなUI部品（紙の手帳デザイン）
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 
@@ -49,15 +50,17 @@ export function Card({ children, className = '' }) {
 // 下端はボトムナビ・ホームインジケータ分の余白も確保して、操作ボタンが必ず押せるようにする
 export function Modal({ title, onClose, children }) {
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40" onClick={onClose}>
+    <div className="backdrop-in fixed inset-0 z-50 flex items-end justify-center bg-ink/40" onClick={onClose}>
       <div
         className="sheet-up w-full max-w-md bg-paper-card rounded-t-3xl px-5 pt-5 pb-[calc(env(safe-area-inset-bottom)+2rem)] max-h-[88vh] scroll-area"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-2">
           <h2 className="font-bold text-lg text-wine">{title}</h2>
           <button onClick={onClose} className="text-ink-soft text-2xl leading-none px-2">×</button>
         </div>
+        {/* 見出しの下に箔押しゴールドの飾りライン */}
+        <div className="h-0.5 rounded-full bg-gradient-to-r from-gold/70 via-gold-soft to-transparent mb-3" />
         {children}
       </div>
     </div>,
@@ -86,11 +89,11 @@ export function OshiSelect({ oshiList, value, onChange, allowEmpty = true }) {
   )
 }
 
-// ワインレッドの主ボタン（押すと軽く沈む）
+// ワインレッドの主ボタン（押すと軽く沈む＋パープルのグロウがワンポイント）
 export function PrimaryButton({ children, className = '', ...props }) {
   return (
     <button
-      className={`press bg-wine hover:bg-wine-dark text-white font-bold rounded-xl px-4 py-2.5 text-sm shadow disabled:opacity-40 transition-colors ${className}`}
+      className={`press tap-pop bg-wine hover:bg-wine-dark text-white font-bold rounded-xl px-4 py-2.5 text-sm shadow disabled:opacity-40 transition-colors ${className}`}
       {...props}
     >
       {children}
@@ -112,8 +115,8 @@ export function GhostButton({ children, className = '', ...props }) {
 
 export function Empty({ icon, message }) {
   return (
-    <div className="text-center text-ink-soft py-10">
-      <div className="text-4xl mb-2 opacity-70">{icon}</div>
+    <div className="fade-up text-center text-ink-soft py-10">
+      <div className="bob-soft text-4xl mb-2 opacity-70">{icon}</div>
       <p className="text-sm whitespace-pre-line">{message}</p>
     </div>
   )
@@ -129,10 +132,11 @@ export function Loading({ label = '読み込み中…', className = '' }) {
   )
 }
 
-// セクション見出し（手帳のマスキングテープ風。左端に箔押しゴールドのワンポイント）
+// セクション見出し（手帳のマスキングテープ風。左端に箔押しゴールドのワンポイント。
+// ホバーすると、貼ったマステをまっすぐ直すようにわずかに回転が戻る）
 export function SectionTitle({ children }) {
   return (
-    <div className="inline-block bg-wine/10 text-wine text-xs font-bold rounded px-2 py-1 mb-2 -rotate-1 border-l-[3px] border-gold/80">{children}</div>
+    <div className="inline-block bg-wine/10 text-wine text-xs font-bold rounded px-2 py-1 mb-2 -rotate-1 border-l-[3px] border-gold/80 transition-transform duration-200 hover:rotate-0">{children}</div>
   )
 }
 
@@ -148,15 +152,39 @@ export function Toggle({ checked, onChange, label }) {
   )
 }
 
-// 目標額に対する進捗バー（伸びるアニメーション＋先端に向かって箔押しゴールドのグラデーション）
+// 目標額に対する進捗バー（伸びるアニメーション＋先端に向かって箔押しゴールドのグラデーション。
+// 第10弾改良版：初回表示時も左からぐっと伸び、伸びきった後に箔押しの光沢が一度だけ走る）
 export function ProgressBar({ value, max, className = '' }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
   return (
     <div className={`w-full bg-paper rounded-full h-2.5 overflow-hidden border border-paper-line/60 ${className}`}>
       <div
-        className="h-full rounded-full transition-[width] duration-700 ease-out"
+        className="bar-grow relative h-full rounded-full overflow-hidden transition-[width] duration-700 ease-out"
         style={{ width: `${pct}%`, background: 'linear-gradient(90deg, var(--color-wine) 55%, var(--color-gold))' }}
-      />
+      >
+        <span className="foil-shine" />
+      </div>
     </div>
   )
+}
+
+// 数字がカラカラっと増えていくカウントアップ表示（金額・件数の演出用）。
+// prefers-reduced-motion の端末では即座に最終値を表示する。
+export function CountUp({ value, format = (n) => n.toLocaleString(), duration = 650, className = '' }) {
+  const [shown, setShown] = useState(0)
+  useEffect(() => {
+    const target = Number(value) || 0
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setShown(target); return }
+    let raf
+    const t0 = performance.now()
+    const tick = (t) => {
+      const p = Math.min(1, (t - t0) / duration)
+      const eased = 1 - Math.pow(1 - p, 3) // 最後にゆっくり止まるイージング
+      setShown(Math.round(target * eased))
+      if (p < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [value, duration])
+  return <span className={className}>{format(shown)}</span>
 }

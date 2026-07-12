@@ -45,18 +45,20 @@ export default function Login({ onLogin }) {
 
   return (
     <div className="h-[100dvh] bg-paper flex items-center justify-center p-6">
-      <div className="w-full max-w-sm bg-paper-card rounded-3xl shadow-xl border border-paper-line p-8">
+      {/* 手帳の表紙を開くように、カードがふわっと現れる */}
+      <div className="fade-up w-full max-w-sm bg-paper-card rounded-3xl shadow-xl border border-paper-line p-8">
         <div className="text-center mb-6">
-          <div className="text-5xl mb-2">💗</div>
+          {/* ロゴのハートはゆっくり鼓動する */}
+          <div className="heart-beat text-5xl mb-2">💗</div>
           <h1 className="text-2xl font-black text-wine">推しログ</h1>
           <p className="text-xs text-ink-soft mt-1">推し活をつづる、わたしの手帳</p>
         </div>
 
         {/* ログイン／新規登録の切り替え */}
         <div className="grid grid-cols-2 bg-paper rounded-xl p-1 text-sm font-bold mb-5">
-          <button className={`rounded-lg py-1.5 ${mode === 'login' ? 'bg-wine text-white' : 'text-ink-soft'}`}
+          <button className={`press rounded-lg py-1.5 transition-colors ${mode === 'login' ? 'bg-wine text-white' : 'text-ink-soft'}`}
             onClick={() => { setMode('login'); setError('') }}>ログイン</button>
-          <button className={`rounded-lg py-1.5 ${mode === 'register' ? 'bg-wine text-white' : 'text-ink-soft'}`}
+          <button className={`press rounded-lg py-1.5 transition-colors ${mode === 'register' ? 'bg-wine text-white' : 'text-ink-soft'}`}
             onClick={() => { setMode('register'); setError(''); setPicked(null) }}>新規登録</button>
         </div>
 
@@ -64,7 +66,7 @@ export default function Login({ onLogin }) {
           <>
             {/* この端末のアカウントをタップで選択（IDだけ自動入力、パスワードは入力） */}
             <p className="text-[11px] text-ink-soft mb-2">アカウントを選んでログイン</p>
-            <div className="space-y-2 mb-3">
+            <div className="space-y-2 mb-3 stagger">
               {accounts.map((a) => (
                 <button key={a.username} type="button" onClick={() => pick(a)}
                   className={`w-full flex items-center gap-3 rounded-xl border px-3 py-2 ${picked.username === a.username ? 'border-wine bg-wine/5' : 'border-paper-line'}`}>
