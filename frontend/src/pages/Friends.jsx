@@ -14,6 +14,10 @@ export default function Friends() {
   const [rooms, setRooms] = useState([])
   const [busy, setBusy] = useState(null)
   const [loading, setLoading] = useState(true)
+  // 第16弾：ログインIDでの検索（さがすタブ）。results=null は未検索状態
+  const [searchQ, setSearchQ] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searching, setSearching] = useState(false)
   const nav = useNavigate()
 
   const reload = () => {
@@ -39,7 +43,32 @@ export default function Friends() {
 
   const request = async (u) => {
     setBusy(u.id)
-    try { await api('/friends/request', { method: 'POST', body: { addressee_id: u.id } }); reload() }
+    try {
+      await api('/friends/request', { method: 'POST', body: { addressee_id: u.id } })
+      reload()
+      // 検索結果からの申請なら、その場の表示も「申請済み」に更新する
+      if (searchResults) setSearchResults((rs) => rs.map((r) => (r.id === u.id ? { ...r, pending_outgoing: true } : r)))
+    }
+    catch (err) { alert(err.message) }
+    finally { setBusy(null) }
+  }
+
+  // 第16弾：ログインIDでユーザーを検索（ブロック関係の相手はサーバー側で除外される）
+  const search = async (e) => {
+    e.preventDefault()
+    const q = searchQ.trim()
+    if (!q) { setSearchResults(null); return }
+    setSearching(true)
+    try { setSearchResults(await api(`/users/search?username=${encodeURIComponent(q)}`)) }
+    catch (err) { alert(err.message) }
+    finally { setSearching(false) }
+  }
+
+  // 第16弾：推し友の解除（アンフレンド）。ブロックとは別で、関係だけを解消する
+  const unfriend = async (f) => {
+    if (!confirm(`${f.display_name}さんとの推し友を解除しますか？\nトーク履歴は残り、再度申請すればまた推し友になれます。`)) return
+    setBusy(f.id)
+    try { await api(`/friends/${f.friendship_id}`, { method: 'DELETE' }); reload() }
     catch (err) { alert(err.message) }
     finally { setBusy(null) }
   }
@@ -86,18 +115,56 @@ export default function Friends() {
           {!loading && friends.length === 0 && <Card><Empty icon="👥" message={'まだ推し友がいません。\n「さがす」から同じ推しの人を見つけましょう！'} /></Card>}
           {friends.map((f) => (
             <Card key={f.id} className="flex items-center gap-3">
-              <UserChip userId={f.id} name={f.display_name} avatar={f.avatar} size="w-12 h-12" textSize="text-lg">
+              <UserChip userId={f.id} name={f.display_name} avatar={f.avatar} size="w-12 h-12" textSize="text-lg" className="flex-1 min-w-0">
                 <p className="font-bold text-sm truncate text-left">{f.display_name}</p>
               </UserChip>
-              {f.room_id && <PrimaryButton className="ml-auto" onClick={() => nav(`/chat/${f.room_id}`)}>💬 トーク</PrimaryButton>}
+              {f.room_id && <PrimaryButton className="shrink-0" onClick={() => nav(`/chat/${f.room_id}`)}>💬 トーク</PrimaryButton>}
+              {/* 推し友の解除（ブロックとは別。関係だけを解消する） */}
+              <GhostButton className="shrink-0" disabled={busy === f.id} onClick={() => unfriend(f)}>解除</GhostButton>
             </Card>
           ))}
         </>
       )}
 
-      {/* おすすめマッチング */}
+      {/* おすすめマッチング＋ID検索 */}
       {tab === 'discover' && (
         <>
+          {/* 第16弾：ログインIDで検索して申請 */}
+          <SectionTitle>IDで検索</SectionTitle>
+          <form onSubmit={search} className="flex gap-2">
+            <input className="flex-1 rounded-xl border border-paper-line bg-white/70 px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-wine/50"
+              placeholder="🔍 ログインIDで検索（例：oshi_taro）" value={searchQ} maxLength={20}
+              autoCapitalize="none" onChange={(e) => setSearchQ(e.target.value)} />
+            <PrimaryButton disabled={searching || !searchQ.trim()}>検索</PrimaryButton>
+          </form>
+          {searchResults !== null && (
+            searchResults.length === 0 ? (
+              <Card><Empty icon="🔍" message={'このIDのユーザーは見つかりませんでした。\nIDが正しいか確認してみてください。'} /></Card>
+            ) : (
+              <div className="stagger space-y-3">
+                {searchResults.map((u) => (
+                  <Card key={u.id} className="flex items-center gap-3">
+                    <UserChip userId={u.id} name={u.display_name} avatar={u.avatar} className="flex-1">
+                      <div className="min-w-0 text-left">
+                        <p className="font-bold text-sm truncate">{u.display_name}</p>
+                        <p className="text-[11px] text-ink-soft truncate">@{u.username}</p>
+                      </div>
+                    </UserChip>
+                    {u.friendship_status === 'accepted' ? (
+                      <span className="text-[11px] text-wine font-bold shrink-0">👥 推し友</span>
+                    ) : u.pending_outgoing ? (
+                      <span className="text-[11px] text-ink-soft shrink-0">申請済み</span>
+                    ) : u.pending_incoming ? (
+                      <GhostButton className="shrink-0" onClick={() => setTab('requests')}>申請が届いています</GhostButton>
+                    ) : (
+                      <PrimaryButton className="shrink-0" disabled={busy === u.id} onClick={() => request(u)}>申請</PrimaryButton>
+                    )}
+                  </Card>
+                ))}
+              </div>
+            )
+          )}
+
           <SectionTitle>同じ推しの人をおすすめ</SectionTitle>
           {!loading && recos.length === 0 && <Card><Empty icon="🔍" message={'おすすめが見つかりませんでした。\n推しを登録すると同担の人が表示されます。'} /></Card>}
           {recos.map((u) => (

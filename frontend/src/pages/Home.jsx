@@ -64,23 +64,25 @@ function FruitZoomModal({ title, origin, onClose, children }) {
   )
 }
 
-// 木に実る果実（タップで拡大→モーダル）。position は木コンテナに対する%座標
-function Fruit({ icon, label, value, x, y, size = 58, tone = 'paper', delay = 0, onOpen }) {
+// 木に実る果実（タップで拡大→モーダル）。position は木コンテナに対する%座標。
+// 第16弾：fallen（木から落ちた状態）では揺れを止め、left/top のトランジションで落下を表現する
+function Fruit({ icon, label, value, x, y, size = 58, tone = 'paper', delay = 0, fallen = false, moveDelay = 0, onOpen }) {
   const toneClass = {
     wine: 'bg-wine text-white border-wine-dark/70',
     gold: 'bg-paper-card text-ink border-gold/70',
     paper: 'bg-paper-card text-ink border-wine/40',
   }[tone]
   const tap = (e) => {
+    e.stopPropagation() // 木タップ（実を落とす／戻す）と干渉しないようにする
     // タップした果実の中心座標をモーダルの拡大起点として渡す
     const r = e.currentTarget.getBoundingClientRect()
     onOpen(`${r.left + r.width / 2}px ${r.top + r.height / 2}px`)
   }
   return (
     <button onClick={tap} aria-label={label}
-      className="absolute flex flex-col items-center"
-      style={{ left: `${x}%`, top: `${y}%`, transform: 'translate(-50%, -50%)' }}>
-      <span className="fruit-bob flex flex-col items-center" style={{ animationDelay: `${delay}s` }}>
+      className="fruit-move absolute flex flex-col items-center"
+      style={{ left: `${x}%`, top: `${y}%`, transform: 'translate(-50%, -50%)', transitionDelay: `${moveDelay}s` }}>
+      <span className={`${fallen ? '' : 'fruit-bob'} flex flex-col items-center`} style={{ animationDelay: `${delay}s` }}>
         <span className={`press rounded-full border-2 shadow-md flex flex-col items-center justify-center ${toneClass}`}
           style={{ width: size, height: size }}>
           <span style={{ fontSize: Math.round(size * 0.36) }} className="leading-none">{icon}</span>
@@ -137,7 +139,19 @@ export default function Home({ user }) {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(null) // { key, origin }
+  // 第16弾：木タップで実が落ちる演出。fallen=実が落ちて下に整列した状態
+  const [fallen, setFallen] = useState(false)
+  const [shaking, setShaking] = useState(false)
   const nav = useNavigate()
+
+  // 木（実以外の部分）をタップ：揺らして実を落とす。落ちた状態でもう一度タップすると実が木に戻る
+  const tapTree = () => {
+    if (shaking) return
+    if (fallen) { setFallen(false); return }
+    setShaking(true)
+    setTimeout(() => setFallen(true), 220) // 揺れの途中で実が離れて落ちはじめる
+    setTimeout(() => setShaking(false), 650)
+  }
 
   useEffect(() => {
     api('/schedules').then(setSchedules).catch(console.error).finally(() => setLoading(false))
@@ -171,28 +185,42 @@ export default function Home({ user }) {
         <Card><Loading label="読み込み中…" /></Card>
       ) : (
         <>
-          <p className="text-[10px] text-ink-soft">🍎 木になっている果実をタップすると、それぞれの内容が開きます</p>
+          <p className="text-[10px] text-ink-soft">
+            {fallen
+              ? '🧺 落ちた実をタップすると開きます・木をタップすると実が戻ります'
+              : '🍎 果実をタップすると開きます・木をタップすると実が落ちてきます'}
+          </p>
 
-          {/* 手描き風の木＋果実。スマホ画面に収まる縦横比で固定 */}
-          <div className="relative w-full aspect-[39/44]">
-            <DoodleTree />
-            <Fruit icon={nearest ? (EVENT_ICONS[nearest.event_type] || '📌') : '📅'} label="いちばん近い予定" value={nearestValue}
-              x={50} y={21} size={78} tone="wine" delay={0} onOpen={openFruit('next')} />
-            <Fruit icon="🗓️" label="今日・直近" value={`${listCount}件`}
-              x={21} y={30} size={62} delay={0.4} onOpen={openFruit('list')} />
-            {savingsEvent && (
-              <Fruit icon="🐷" label="貯金" value={`${Math.min(100, Math.round((savingsEvent.saved_amount / savingsEvent.savings_goal) * 100))}%`}
-                x={79} y={28} size={64} tone="gold" delay={0.8} onOpen={openFruit('savings')} />
-            )}
-            <Fruit icon="🎁" label="グッズ" x={50} y={43} size={56} delay={1.2} onOpen={openFruit('goods')} />
-            <Fruit icon="💰" label="今月の推し活費" value={formatYen(monthTotal)}
-              x={11.5} y={49} size={60} delay={0.6} onOpen={openFruit('month')} />
-            <Fruit icon="⭐" label="推している人" value={`${oshiList.length}人`}
-              x={88} y={47} size={58} delay={1.0} onOpen={openFruit('oshiCount')} />
-            <Fruit icon="💗" label="わたしの推し"
-              x={33} y={56} size={58} tone="gold" delay={0.2} onOpen={openFruit('myOshi')} />
-            <Fruit icon="📒" label="家計簿"
-              x={66} y={57} size={56} delay={1.4} onOpen={openFruit('records')} />
+          {/* 手描き風の木＋果実。スマホ画面に収まる縦横比で固定。
+              木の部分（実以外）をタップすると揺れて実が落ち、画面下部に整列する（第16弾） */}
+          <div className="relative w-full aspect-[39/44]" onClick={tapTree}>
+            <div className={`absolute inset-0 ${shaking ? 'tree-shake' : ''}`}>
+              <DoodleTree />
+            </div>
+            {(() => {
+              // 木になっている状態の位置（x, y）と、落ちたあとの整列位置は index から算出する
+              const fruitDefs = [
+                { key: 'next', icon: nearest ? (EVENT_ICONS[nearest.event_type] || '📌') : '📅', label: 'いちばん近い予定', value: nearestValue, x: 50, y: 21, size: 78, tone: 'wine', delay: 0 },
+                { key: 'list', icon: '🗓️', label: '今日・直近', value: `${listCount}件`, x: 21, y: 30, size: 62, delay: 0.4 },
+                ...(savingsEvent ? [{ key: 'savings', icon: '🐷', label: '貯金', value: `${Math.min(100, Math.round((savingsEvent.saved_amount / savingsEvent.savings_goal) * 100))}%`, x: 79, y: 28, size: 64, tone: 'gold', delay: 0.8 }] : []),
+                { key: 'goods', icon: '🎁', label: 'グッズ', x: 50, y: 43, size: 56, delay: 1.2 },
+                { key: 'month', icon: '💰', label: '今月の推し活費', value: formatYen(monthTotal), x: 11.5, y: 49, size: 60, delay: 0.6 },
+                { key: 'oshiCount', icon: '⭐', label: '推している人', value: `${oshiList.length}人`, x: 88, y: 47, size: 58, delay: 1.0 },
+                { key: 'myOshi', icon: '💗', label: 'わたしの推し', x: 33, y: 56, size: 58, tone: 'gold', delay: 0.2 },
+                { key: 'records', icon: '📒', label: '家計簿', x: 66, y: 57, size: 56, delay: 1.4 },
+              ]
+              // 落ちたあとの整列位置：地面付近に4個×2段で並べる
+              const slotPos = (i) => ({ x: [13, 38, 62, 87][i % 4], y: i < 4 ? 78 : 91 })
+              return fruitDefs.map((f, i) => {
+                const pos = fallen ? slotPos(i) : { x: f.x, y: f.y }
+                return (
+                  <Fruit key={f.key} icon={f.icon} label={f.label} value={f.value}
+                    x={pos.x} y={pos.y} size={f.size} tone={f.tone} delay={f.delay}
+                    fallen={fallen} moveDelay={fallen ? i * 0.06 : 0}
+                    onOpen={openFruit(f.key)} />
+                )
+              })
+            })()}
           </div>
         </>
       )}

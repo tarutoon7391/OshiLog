@@ -330,6 +330,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_friend_request BOOLEAN NOT NUL
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_chat_dm BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_chat_group BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_event BOOLEAN NOT NULL DEFAULT true;
+
+-- 第16弾：メッセージの片方向ブロック（LINE方式）。
+-- 送信時点で「送信者をブロックしていた受信者のID」を記録し、その人の画面にだけ表示しない。
+-- ブロックを解除しても、ブロック中に送られたメッセージは非表示のまま（LINEと同じ挙動）。
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS hidden_for_user_ids INTEGER[] NOT NULL DEFAULT '{}';
 `;
 
 // 既存データ用のバックフィルとシード投入

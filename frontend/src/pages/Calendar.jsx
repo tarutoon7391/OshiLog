@@ -82,6 +82,102 @@ function DayZoomPanel({ backLabel, title, origin, onClose, children }) {
   )
 }
 
+// 第16弾：予定の開始・終了時刻は15分単位の選択式にする（9:00, 9:15, 9:30, …）
+const TIME_OPTIONS = []
+for (let h = 0; h < 24; h++) for (const mi of [0, 15, 30, 45]) TIME_OPTIONS.push(`${pad(h)}:${pad(mi)}`)
+
+// 15分刻みの時刻セレクト。空欄＝終日。
+// 編集時、既存データが15分刻み以外の時刻（例：9:05）でも消えないよう選択肢に含める
+function TimeSelect({ value, onChange, placeholder = '（指定しない）' }) {
+  const opts = value && !TIME_OPTIONS.includes(value) ? [value, ...TIME_OPTIONS] : TIME_OPTIONS
+  return (
+    <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{placeholder}</option>
+      {opts.map((t) => <option key={t} value={t}>{t}</option>)}
+    </select>
+  )
+}
+
+// 1日詳細に表示する予定1件のカード（終日・時間帯の両方で共通）
+function DayEventCard({ s, onEdit, onRemove }) {
+  return (
+    <div className="bg-paper rounded-xl p-3 border-l-4" style={{ borderLeftColor: scheduleColor(s) }}>
+      <p className="text-[11px] font-bold text-wine">
+        {formatHm(s.start_time)
+          ? `${formatHm(s.start_time)}${formatHm(s.end_time) ? `〜${formatHm(s.end_time)}` : ''}`
+          : '終日'}
+      </p>
+      <p className="font-bold text-sm">
+        {importanceMark(s.event_importance) && <span className="mr-0.5">{importanceMark(s.event_importance)}</span>}
+        {EVENT_ICONS[s.event_type] || '📌'} {s.title}
+      </p>
+      <p className="text-[11px] text-ink-soft mt-0.5">
+        {s.event_type}{s.oshi_name ? `・${s.oshi_name}` : ''}
+        {!s.is_own && <span className="ml-1">👤 {s.owner_name}さんの共有予定</span>}
+        {s.is_own && s.shared_user_ids && s.shared_user_ids.length > 0 && <span className="ml-1 text-wine">🔗 {s.shared_user_ids.length}人に共有中</span>}
+      </p>
+      {s.memo && <p className="text-[11px] text-ink-soft mt-1">{s.memo}</p>}
+      {/* 関連URL（チケットサイト・配信ページ等）。設定されているときだけタップできるリンクとして表示 */}
+      {s.url && (
+        <a href={s.url} target="_blank" rel="noreferrer"
+          className="block text-[11px] text-wine underline mt-1 truncate">🔗 {s.url}</a>
+      )}
+      {s.is_own && s.reminder_offset_minutes != null && (
+        <p className="text-[10px] text-ink-soft mt-1">⏰ {reminderLabel(s.reminder_offset_minutes)}に通知</p>
+      )}
+      {s.is_own && (
+        <div className="flex gap-3 mt-1.5">
+          <button onClick={() => onEdit(s)} className="text-[11px] text-wine underline">編集</button>
+          <button onClick={() => onRemove(s)} className="text-[11px] text-ink-soft underline">削除</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 第16弾：1日詳細の24時間タイムライン。0時〜24時の時間軸をすべて罫線で表示し、
+// 開いたときは最初の予定の時間帯（予定がなければ8時）まで自動スクロールする
+function DayTimeline({ events, onEdit, onRemove }) {
+  const allDay = events.filter((s) => !formatHm(s.start_time))
+  const timed = events.filter((s) => formatHm(s.start_time))
+  const hourOf = (s) => Number(String(s.start_time).slice(0, 2))
+  const firstHour = timed.length ? Math.min(...timed.map(hourOf)) : 8
+  const scrollRef = useRef(null)
+  useEffect(() => {
+    // ズーム演出と重ならないよう少し待ってからスクロール
+    const t = setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollIntoView({ block: 'center' }) }, 80)
+    return () => clearTimeout(t)
+  }, [])
+  return (
+    <div className="space-y-3">
+      {events.length === 0 && <p className="text-[11px] text-ink-soft text-center">この日の予定はありません</p>}
+      {allDay.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-bold text-ink-soft">📌 終日</p>
+          {allDay.map((s) => <DayEventCard key={s.id} s={s} onEdit={onEdit} onRemove={onRemove} />)}
+        </div>
+      )}
+      {/* 手帳の時間罫のような24時間の目盛り */}
+      <div className="bg-paper-card rounded-2xl border border-paper-line/60 px-2 pb-1 pt-0.5">
+        {Array.from({ length: 24 }, (_, h) => (
+          <div key={h} ref={h === firstHour ? scrollRef : undefined}
+            className="flex border-t border-paper-line/50 first:border-t-0 min-h-8">
+            <span className="w-11 shrink-0 text-right pr-2 text-[10px] text-ink-soft pt-1">{h}:00</span>
+            <div className="flex-1 min-w-0 py-1 space-y-1">
+              {timed.filter((s) => hourOf(s) === h).map((s) => (
+                <DayEventCard key={s.id} s={s} onEdit={onEdit} onRemove={onRemove} />
+              ))}
+            </div>
+          </div>
+        ))}
+        <div className="flex border-t border-paper-line/50">
+          <span className="w-11 shrink-0 text-right pr-2 text-[10px] text-ink-soft py-0.5">24:00</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // iPhoneカレンダー準拠：年→月→日の3階層。
 // 月ビュー＝縦スクロールの連続月（従来どおり）、年ビュー＝12か月のミニチュア一覧。
 // 日付は「1回目のタップで選択、選択中の日をもう一度タップで1日詳細」。
@@ -379,49 +475,9 @@ export default function Calendar() {
       {detailDate && (
         <DayZoomPanel title={formatDateJa(detailDate)} backLabel={`${Number(detailDate.slice(5, 7))}月`}
           origin={dayOrigin} onClose={() => setDetailDate(null)}>
-          {detailEvents.length === 0
-            ? <Empty icon="🗓️" message="この日の予定はありません" />
-            : (
-              <ul className="relative border-l-2 border-paper-line ml-2 space-y-3">
-                {detailEvents.map((s) => (
-                  <li key={s.id} className="ml-4 relative">
-                    <span className="absolute -left-[22px] top-1 w-3 h-3 rounded-full border-2 border-paper-card"
-                      style={{ backgroundColor: scheduleColor(s) }} />
-                    <div className="bg-paper rounded-xl p-3">
-                      <p className="text-[11px] font-bold text-wine">
-                        {formatHm(s.start_time)
-                          ? `${formatHm(s.start_time)}${formatHm(s.end_time) ? `〜${formatHm(s.end_time)}` : ''}`
-                          : '終日'}
-                      </p>
-                      <p className="font-bold text-sm">
-                        {importanceMark(s.event_importance) && <span className="mr-0.5">{importanceMark(s.event_importance)}</span>}
-                        {EVENT_ICONS[s.event_type] || '📌'} {s.title}
-                      </p>
-                      <p className="text-[11px] text-ink-soft mt-0.5">
-                        {s.event_type}{s.oshi_name ? `・${s.oshi_name}` : ''}
-                        {!s.is_own && <span className="ml-1">👤 {s.owner_name}さんの共有予定</span>}
-                        {s.is_own && s.shared_user_ids && s.shared_user_ids.length > 0 && <span className="ml-1 text-wine">🔗 {s.shared_user_ids.length}人に共有中</span>}
-                      </p>
-                      {s.memo && <p className="text-[11px] text-ink-soft mt-1">{s.memo}</p>}
-                      {/* 関連URL（チケットサイト・配信ページ等）。設定されているときだけタップできるリンクとして表示 */}
-                      {s.url && (
-                        <a href={s.url} target="_blank" rel="noreferrer"
-                          className="block text-[11px] text-wine underline mt-1 truncate">🔗 {s.url}</a>
-                      )}
-                      {s.is_own && s.reminder_offset_minutes != null && (
-                        <p className="text-[10px] text-ink-soft mt-1">⏰ {reminderLabel(s.reminder_offset_minutes)}に通知</p>
-                      )}
-                      {s.is_own && (
-                        <div className="flex gap-3 mt-1.5">
-                          <button onClick={() => { setDetailDate(null); openEdit(s) }} className="text-[11px] text-wine underline">編集</button>
-                          <button onClick={() => remove(s)} className="text-[11px] text-ink-soft underline">削除</button>
-                        </div>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+          {/* 第16弾：0時〜24時の時間軸をすべて表示する24時間タイムライン */}
+          <DayTimeline events={detailEvents}
+            onEdit={(s) => { setDetailDate(null); openEdit(s) }} onRemove={remove} />
           <PrimaryButton className="w-full mt-4" onClick={() => { const d = detailDate; setDetailDate(null); openAdd(d) }}>
             この日に予定を追加
           </PrimaryButton>
@@ -451,15 +507,14 @@ export default function Calendar() {
             </Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="開始時刻（任意）">
-                <input type="time" className={inputClass} value={form.start_time}
-                  onChange={(e) => setForm({ ...form, start_time: e.target.value })} />
+                {/* 第16弾：15分単位の選択式（9:00, 9:15, 9:30, …） */}
+                <TimeSelect value={form.start_time} onChange={(v) => setForm({ ...form, start_time: v })} placeholder="（終日）" />
               </Field>
               <Field label="終了時刻（任意）">
-                <input type="time" className={inputClass} value={form.end_time}
-                  onChange={(e) => setForm({ ...form, end_time: e.target.value })} />
+                <TimeSelect value={form.end_time} onChange={(v) => setForm({ ...form, end_time: v })} placeholder="（指定しない）" />
               </Field>
             </div>
-            <p className="text-[10px] text-ink-soft -mt-2 mb-3">時刻を空欄にすると終日予定になります</p>
+            <p className="text-[10px] text-ink-soft -mt-2 mb-3">時刻は15分単位で選べます。開始時刻を「終日」にすると終日予定になります</p>
             <Field label="推し">
               <OshiSelect oshiList={oshiList} value={form.oshi_id} onChange={(v) => setForm({ ...form, oshi_id: v })} />
             </Field>

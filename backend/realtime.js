@@ -64,18 +64,21 @@ function init(server, pgPool) {
           'SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [roomId, socket.userId]);
         if (!mem.rows.length) return cb && cb({ error: 'このトークにアクセスできません' });
 
-        // ブロック関係があるDMには送信できない（どちら向きのブロックでも遮断・サーバー側判定）
-        const blocked = await pool.query(
-          `SELECT 1 FROM chat_room_members crm
-             JOIN blocks b ON (b.blocker_id = $2 AND b.blocked_id = crm.user_id)
-                           OR (b.blocker_id = crm.user_id AND b.blocked_id = $2)
-           WHERE crm.room_id = $1 AND crm.user_id <> $2 LIMIT 1`, [roomId, socket.userId]);
-        if (blocked.rows.length) return cb && cb({ error: 'この相手にはメッセージを送れません' });
+        // 第16弾：メッセージの片方向ブロック（LINE方式・判定はサーバー側）。
+        // ブロックされていても送信自体は成功させ（気付かれないように）、
+        // 「送信者をブロックしている受信者」にだけ届かないようにする。
+        // 送信時点のブロック状態を hidden_for_user_ids に記録するため、
+        // あとでブロックを解除しても、ブロック中に送られた分は非表示のまま。
+        const hiddenRows = await pool.query(
+          `SELECT crm.user_id FROM chat_room_members crm
+             JOIN blocks b ON b.blocker_id = crm.user_id AND b.blocked_id = $2
+           WHERE crm.room_id = $1 AND crm.user_id <> $2`, [roomId, socket.userId]);
+        const hiddenIds = hiddenRows.rows.map((r) => r.user_id);
 
         const ins = await pool.query(
-          `INSERT INTO chat_messages (room_id, sender_id, content, attachment_url, attachment_type, attachment_name)
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-          [roomId, socket.userId, content.slice(0, 1000), attUrl, attType, attName]);
+          `INSERT INTO chat_messages (room_id, sender_id, content, attachment_url, attachment_type, attachment_name, hidden_for_user_ids)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+          [roomId, socket.userId, content.slice(0, 1000), attUrl, attType, attName, hiddenIds]);
         const u = await pool.query('SELECT display_name, username, avatar FROM users WHERE id = $1', [socket.userId]);
         const full = {
           ...ins.rows[0],
@@ -83,17 +86,30 @@ function init(server, pgPool) {
           sender_avatar: u.rows[0].avatar,
           read_count: 0,
         };
-        io.to(`room_${roomId}`).emit('chat:message', full);
+        // hidden_for_user_ids はブロック状態が推測できてしまうため、配信データには含めない
+        delete full.hidden_for_user_ids;
+
+        const others = await pool.query(
+          'SELECT user_id FROM chat_room_members WHERE room_id = $1 AND user_id <> $2', [roomId, socket.userId]);
+        if (hiddenIds.length === 0) {
+          // ブロック関係がなければ従来どおりルーム全体へ配信
+          io.to(`room_${roomId}`).emit('chat:message', full);
+        } else {
+          // ブロックしているメンバーを除いて個別配信（本人には必ず届ける）
+          io.to(`user_${socket.userId}`).emit('chat:message', full);
+          others.rows
+            .filter((r) => !hiddenIds.includes(r.user_id))
+            .forEach((r) => io.to(`user_${r.user_id}`).emit('chat:message', full));
+        }
         cb && cb({ ok: true, message: full });
 
         // 同室の他メンバーへプッシュ通知＋通知センター記録。
-        // DM（トーク）とイベントのグループトークで通知カテゴリを分ける（第15弾）
-        const others = await pool.query(
-          'SELECT user_id FROM chat_room_members WHERE room_id = $1 AND user_id <> $2', [roomId, socket.userId]);
+        // DM（トーク）とイベントのグループトークで通知カテゴリを分ける（第15弾）。
+        // 送信者をブロックしているメンバーには通知も届けない（第16弾）
         const room = await pool.query('SELECT type FROM chat_rooms WHERE id = $1', [roomId]);
         const isGroup = room.rows.length && room.rows[0].type === 'event';
         const preview = content ? content.slice(0, 80) : (attType === 'image' ? '📷 画像' : attType === 'video' ? '🎬 動画' : '📎 ファイル');
-        notify.send(pool, others.rows.map((r) => r.user_id), {
+        notify.send(pool, others.rows.map((r) => r.user_id).filter((id) => !hiddenIds.includes(id)), {
           title: `💬 ${full.sender_name}`,
           body: preview,
           url: `/chat/${roomId}`,
@@ -112,10 +128,13 @@ function init(server, pgPool) {
         const mem = await pool.query(
           'SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [roomId, socket.userId]);
         if (!mem.rows.length) return;
-        // まだ既読でない他人のメッセージを取得
+        // まだ既読でない他人のメッセージを取得。
+        // 自分に対して非表示のメッセージ（＝自分がブロック中に送られたもの）は既読にしない。
+        // ここで既読を付けると送信者側に「既読」が表示され、ブロックが気付かれてしまうため
         const unread = await pool.query(
           `SELECT id FROM chat_messages cm
            WHERE cm.room_id = $1 AND cm.sender_id <> $2
+             AND NOT ($2 = ANY(cm.hidden_for_user_ids))
              AND NOT EXISTS (SELECT 1 FROM chat_message_reads r WHERE r.message_id = cm.id AND r.user_id = $2)`,
           [roomId, socket.userId]);
         const ids = unread.rows.map((r) => r.id);

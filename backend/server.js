@@ -532,19 +532,16 @@ app.get('/api/friends/recommendations', auth, wrap(async (req, res) => {
   res.json(r.rows);
 }));
 
-// ブロック関係が存在するか（どちら向きでも）をサーバー側で判定
-async function isBlockedPair(a, b) {
-  const r = await pool.query(
-    `SELECT 1 FROM blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1) LIMIT 1`,
-    [a, b]);
-  return r.rows.length > 0;
-}
-
 app.post('/api/friends/request', auth, wrap(async (req, res) => {
   const addressee = Number(req.body.addressee_id);
   if (!addressee || addressee === req.userId) return res.status(400).json({ error: '相手が不正です' });
-  // ブロック関係があれば申請不可（サーバー側で判定）
-  if (await isBlockedPair(req.userId, addressee)) return res.status(403).json({ error: 'この相手には申請できません' });
+  // 第16弾：ブロック時の申請可否（サーバー側で判定）
+  // - 自分が相手をブロック中 → エラー（自分の操作なので伝えてよい）
+  // - 相手が自分をブロック中 → 成功したふりをして何もしない（ブロックされていることを気付かせない）
+  const iBlock = await pool.query('SELECT 1 FROM blocks WHERE blocker_id = $1 AND blocked_id = $2', [req.userId, addressee]);
+  if (iBlock.rows.length) return res.status(403).json({ error: 'ブロック中の相手には申請できません（ブロックリストから解除できます）' });
+  const blockedMe = await pool.query('SELECT 1 FROM blocks WHERE blocker_id = $1 AND blocked_id = $2', [addressee, req.userId]);
+  if (blockedMe.rows.length) return res.status(201).json({ ok: true });
   // 既存関係のチェック（どちら向きでも）
   const ex = await pool.query(
     `SELECT * FROM friendships WHERE (requester_id = $1 AND addressee_id = $2) OR (requester_id = $2 AND addressee_id = $1)`,
@@ -576,11 +573,23 @@ app.post('/api/friends/:id/accept', auth, wrap(async (req, res) => {
   const fr = f.rows[0];
   await pool.query("UPDATE friendships SET status = 'accepted' WHERE id = $1", [fr.id]);
 
-  // 承認時にDM用ルームを自動作成して両者をメンバーに追加
-  const room = await pool.query("INSERT INTO chat_rooms (type) VALUES ('dm') RETURNING id");
-  const roomId = room.rows[0].id;
-  await pool.query('INSERT INTO chat_room_members (room_id, user_id) VALUES ($1, $2), ($1, $3)',
-    [roomId, fr.requester_id, fr.addressee_id]);
+  // 承認時にDM用ルームを自動作成して両者をメンバーに追加。
+  // 第16弾：推し友解除→再承認のケースでは以前のルームが残っているため、
+  // 既存のDMルームがあればそれを再利用する（トークが二重にできるのを防ぐ）
+  const existing = await pool.query(
+    `SELECT cr.id FROM chat_rooms cr WHERE cr.type = 'dm' AND cr.id IN (
+       SELECT room_id FROM chat_room_members WHERE user_id = $1
+       INTERSECT SELECT room_id FROM chat_room_members WHERE user_id = $2) LIMIT 1`,
+    [fr.requester_id, fr.addressee_id]);
+  let roomId;
+  if (existing.rows.length) {
+    roomId = existing.rows[0].id;
+  } else {
+    const room = await pool.query("INSERT INTO chat_rooms (type) VALUES ('dm') RETURNING id");
+    roomId = room.rows[0].id;
+    await pool.query('INSERT INTO chat_room_members (room_id, user_id) VALUES ($1, $2), ($1, $3)',
+      [roomId, fr.requester_id, fr.addressee_id]);
+  }
 
   const me = await pool.query('SELECT display_name FROM users WHERE id = $1', [req.userId]);
   realtime.emitToUser(fr.requester_id, 'friend:accepted', { by: me.rows[0].display_name });
@@ -595,6 +604,44 @@ app.post('/api/friends/:id/reject', auth, wrap(async (req, res) => {
     `DELETE FROM friendships WHERE id = $1 AND addressee_id = $2 AND status = 'pending'`,
     [req.params.id, req.userId]);
   res.json({ ok: true });
+}));
+
+// 第16弾：推し友の削除（アンフレンド）。ブロックとは別で、単純に推し友関係だけを解消する。
+// 当事者のどちらからでも実行でき、双方の推し友関係が解消される。
+// DMルームとトーク履歴はそのまま残す（削除＝ブロックではないため、メッセージは今まで通り届く）。
+// 再度申請すればまた推し友になれる（おすすめ表示の対象にも戻る）。
+app.delete('/api/friends/:id', auth, wrap(async (req, res) => {
+  const r = await pool.query(
+    `DELETE FROM friendships
+     WHERE id = $1 AND status = 'accepted' AND (requester_id = $2 OR addressee_id = $2) RETURNING id`,
+    [req.params.id, req.userId]);
+  if (!r.rows.length) return res.status(404).json({ error: '推し友関係が見つかりません' });
+  res.json({ ok: true });
+}));
+
+// 第16弾：ログインID（username）でユーザーを検索して推し友申請できるようにする。
+// ブロック関係（どちら向きでも）にある相手は検索結果に出さない（サーバー側で判定）。
+// 申請ボタンの出し分け用に、今の関係（推し友・申請中）も返す。
+app.get('/api/users/search', auth, wrap(async (req, res) => {
+  const q = String(req.query.username || '').trim();
+  if (!q) return res.json([]);
+  const r = await pool.query(
+    `SELECT u.id, u.username, u.display_name, u.avatar,
+            f.status AS friendship_status,
+            (f.status = 'pending' AND f.requester_id = $1) AS pending_outgoing,
+            (f.status = 'pending' AND f.addressee_id = $1) AS pending_incoming
+     FROM users u
+     LEFT JOIN friendships f
+       ON (f.requester_id = $1 AND f.addressee_id = u.id) OR (f.requester_id = u.id AND f.addressee_id = $1)
+     WHERE u.id <> $1
+       AND u.username ILIKE $2
+       AND NOT EXISTS (
+         SELECT 1 FROM blocks b
+         WHERE (b.blocker_id = $1 AND b.blocked_id = u.id)
+            OR (b.blocker_id = u.id AND b.blocked_id = $1))
+     ORDER BY (u.username = $3) DESC, u.username LIMIT 10`,
+    [req.userId, `%${q}%`, q]);
+  res.json(r.rows);
 }));
 
 // =========================================================
@@ -619,7 +666,6 @@ app.get('/api/users/:id/profile', auth, wrap(async (req, res) => {
   const pendingOutgoing = !!friendship && friendship.status === 'pending' && friendship.requester_id === req.userId;
 
   const iBlocked = (await pool.query('SELECT 1 FROM blocks WHERE blocker_id = $1 AND blocked_id = $2', [req.userId, targetId])).rows.length > 0;
-  const blockedMe = (await pool.query('SELECT 1 FROM blocks WHERE blocker_id = $1 AND blocked_id = $2', [targetId, req.userId])).rows.length > 0;
 
   // DMルーム（推し友なら）
   let roomId = null;
@@ -632,8 +678,10 @@ app.get('/api/users/:id/profile', auth, wrap(async (req, res) => {
     roomId = room.rows.length ? room.rows[0].id : null;
   }
 
-  // 詳細（自己紹介・推し一覧）を見せてよいか：本人／推し友／公開アカウントのみ
-  const canSeeDetail = isSelf || isFriend || (t.is_public && !blockedMe);
+  // 詳細（自己紹介・推し一覧）を見せてよいか：本人／推し友／公開アカウントのみ。
+  // 第16弾：ブロックされていても表示は通常どおりにする
+  // （表示を変えると「ブロックされていること」が相手に伝わってしまうため）
+  const canSeeDetail = isSelf || isFriend || t.is_public;
   let oshi = [];
   if (canSeeDetail) {
     const o = await pool.query(
@@ -644,27 +692,28 @@ app.get('/api/users/:id/profile', auth, wrap(async (req, res) => {
     oshi = o.rows;
   }
 
+  // 第16弾：blocked_me（相手にブロックされているか）はレスポンスに含めない。
+  // APIレスポンスから「ブロックされていること」が分かってしまうのを防ぐ
   res.json({
     id: t.id, username: t.username, display_name: t.display_name, avatar: t.avatar,
     bio: canSeeDetail ? t.bio : null, is_public: t.is_public,
     is_self: isSelf, is_friend: isFriend, pending_incoming: pendingIncoming, pending_outgoing: pendingOutgoing,
-    i_blocked: iBlocked, blocked_me: blockedMe, can_see_detail: canSeeDetail,
+    i_blocked: iBlocked, can_see_detail: canSeeDetail,
     room_id: roomId, oshi,
     incoming_friendship_id: pendingIncoming ? (await pool.query(
       `SELECT id FROM friendships WHERE requester_id = $1 AND addressee_id = $2 AND status='pending'`, [targetId, req.userId])).rows[0]?.id : null,
   });
 }));
 
-// ブロックする：以降の申請・DMを遮断し、既存の推し友関係・保留申請は解消する（判定はサーバー側）
+// ブロックする（第16弾で仕様変更・LINE方式）：
+// - 推し友関係（フレンド状態）はそのまま維持する（以前は自動解消していたが廃止）
+// - ブロック中は、相手からのメッセージが「自分にだけ」届かなくなる（判定はサーバー側）
+// - 相手のつぶやき非表示・おすすめからの除外は従来どおり
 app.post('/api/users/:id/block', auth, wrap(async (req, res) => {
   const targetId = Number(req.params.id);
   if (!targetId || targetId === req.userId) return res.status(400).json({ error: '相手が不正です' });
   await pool.query(
     'INSERT INTO blocks (blocker_id, blocked_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.userId, targetId]);
-  // 既存の推し友関係・保留中の申請を双方向で解消
-  await pool.query(
-    `DELETE FROM friendships WHERE (requester_id = $1 AND addressee_id = $2) OR (requester_id = $2 AND addressee_id = $1)`,
-    [req.userId, targetId]);
   res.json({ ok: true });
 }));
 
@@ -695,11 +744,16 @@ app.get('/api/chat/rooms', auth, wrap(async (req, res) => {
              WHERE m2.room_id = r.id AND m2.user_id <> $1 LIMIT 1) AS other_user_id,
             (SELECT u2.avatar FROM chat_room_members m2 JOIN users u2 ON u2.id = m2.user_id
              WHERE m2.room_id = r.id AND m2.user_id <> $1 LIMIT 1) AS other_user_avatar,
-            (SELECT content FROM chat_messages cm WHERE cm.room_id = r.id ORDER BY id DESC LIMIT 1) AS last_message,
-            (SELECT created_at FROM chat_messages cm WHERE cm.room_id = r.id ORDER BY id DESC LIMIT 1) AS last_at,
+            -- 第16弾：自分に対して非表示のメッセージ（ブロック中に送られたもの）は
+            -- 最終メッセージ・未読数にも含めない（一覧のプレビューから漏れるのを防ぐ）
+            (SELECT content FROM chat_messages cm WHERE cm.room_id = r.id
+               AND NOT ($1 = ANY(cm.hidden_for_user_ids)) ORDER BY id DESC LIMIT 1) AS last_message,
+            (SELECT created_at FROM chat_messages cm WHERE cm.room_id = r.id
+               AND NOT ($1 = ANY(cm.hidden_for_user_ids)) ORDER BY id DESC LIMIT 1) AS last_at,
             (SELECT COUNT(*)::int FROM chat_room_members WHERE room_id = r.id) AS member_count,
             (SELECT COUNT(*)::int FROM chat_messages cm2
                WHERE cm2.room_id = r.id AND cm2.sender_id <> $1
+                 AND NOT ($1 = ANY(cm2.hidden_for_user_ids))
                  AND NOT EXISTS (SELECT 1 FROM chat_message_reads rr WHERE rr.message_id = cm2.id AND rr.user_id = $1)) AS unread_count,
             EXISTS (SELECT 1 FROM pinned_chats pc WHERE pc.room_id = r.id AND pc.user_id = $1) AS pinned
      FROM chat_rooms r
@@ -738,11 +792,16 @@ app.get('/api/chat/rooms/:id/messages', auth, wrap(async (req, res) => {
   const roomId = req.params.id;
   const mem = await pool.query('SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [roomId, req.userId]);
   if (!mem.rows.length) return res.status(403).json({ error: 'このトークにアクセスできません' });
+  // 第16弾：自分に対して非表示のメッセージ（自分がブロック中に送られたもの）は返さない。
+  // hidden_for_user_ids 自体もブロック状態が推測できるためレスポンスに含めない
   const r = await pool.query(
-    `SELECT cm.*, u.display_name AS sender_name, u.avatar AS sender_avatar,
+    `SELECT cm.id, cm.room_id, cm.sender_id, cm.content, cm.is_read, cm.created_at,
+            cm.attachment_url, cm.attachment_type, cm.attachment_name,
+            u.display_name AS sender_name, u.avatar AS sender_avatar,
             (SELECT COUNT(*)::int FROM chat_message_reads rr WHERE rr.message_id = cm.id AND rr.user_id <> cm.sender_id) AS read_count
      FROM chat_messages cm JOIN users u ON u.id = cm.sender_id
-     WHERE cm.room_id = $1 ORDER BY cm.id ASC LIMIT 200`, [roomId]);
+     WHERE cm.room_id = $1 AND NOT ($2 = ANY(cm.hidden_for_user_ids))
+     ORDER BY cm.id ASC LIMIT 200`, [roomId, req.userId]);
   res.json(r.rows);
 }));
 
@@ -1442,7 +1501,13 @@ app.get('/api/stats/summary', auth, wrap(async (req, res) => {
             SUM(r.amount)::int AS total
      FROM records r WHERE r.user_id = $1
      GROUP BY 1 ORDER BY 1 DESC LIMIT 6`, [req.userId]);
-  res.json({ byOshi: byOshi.rows, monthly: monthly.rows.reverse() });
+  // 第16弾：全期間の月別支出（家計簿グラフの「全期間」切り替え用）
+  const monthlyAll = await pool.query(
+    `SELECT to_char(date_trunc('month', r.record_date), 'YYYY-MM') AS month,
+            SUM(r.amount)::int AS total
+     FROM records r WHERE r.user_id = $1
+     GROUP BY 1 ORDER BY 1 ASC`, [req.userId]);
+  res.json({ byOshi: byOshi.rows, monthly: monthly.rows.reverse(), monthlyAll: monthlyAll.rows });
 }));
 
 // 未定義のAPIパスはJSONで404

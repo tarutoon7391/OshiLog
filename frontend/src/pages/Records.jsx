@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import { api } from '../api'
 import { currentMonth, shiftMonth, todayStr, formatYen } from '../util'
-import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty, Loading } from '../components/ui'
+import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty, Loading, SectionTitle, CountUp } from '../components/ui'
 
 const emptyForm = { title: '', record_date: '', amount: '', oshi_id: null, memo: '', event_id: null }
 
@@ -21,6 +21,7 @@ export default function Records() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [stamped, setStamped] = useState(false) // 登録直後の判子演出
+  const [range, setRange] = useState('6m') // 月別グラフの表示期間：'6m'（直近6ヶ月）| 'all'（全期間）
 
   const reload = () => {
     api(`/records?month=${month}`).then(setList).catch(console.error).finally(() => setLoading(false))
@@ -66,13 +67,19 @@ export default function Records() {
       {tab === 'list' && (
         <>
           <Card className="flex items-center justify-between">
-            <button onClick={() => setMonth(shiftMonth(month, -1))} className="text-wine text-xl px-2">‹</button>
+            <button onClick={() => setMonth(shiftMonth(month, -1))} className="press text-wine text-xl px-2">‹</button>
             <div className="text-center">
               <p className="font-bold">{y}年{Number(m)}月</p>
-              <p className="text-wine font-black text-xl">{formatYen(monthTotal)}</p>
+              {/* 月の合計は判子風の枠＋カウントアップで「手帳に押した収支印」らしく */}
+              <p className="inline-block text-wine font-black text-xl border-2 border-dashed border-wine/40 rounded-lg px-3 py-0.5 -rotate-1 mt-1">
+                <CountUp value={monthTotal} format={formatYen} />
+              </p>
             </div>
-            <button onClick={() => setMonth(shiftMonth(month, 1))} className="text-wine text-xl px-2">›</button>
+            <button onClick={() => setMonth(shiftMonth(month, 1))} className="press text-wine text-xl px-2">›</button>
           </Card>
+
+          {/* 罫線風の区切り（手帳のページの折り目イメージ） */}
+          <div className="border-t border-dashed border-paper-line/80 mx-2" />
 
           {loading && <Loading label="記録を読み込み中…" />}
           {!loading && list.length === 0 && <Card><Empty icon="💰" message={'この月の記録はありません。\nライブ参戦やグッズ購入を記録しましょう！'} /></Card>}
@@ -116,7 +123,8 @@ export default function Records() {
       {tab === 'chart' && stats && (
         <>
           <Card>
-            <p className="text-sm font-bold mb-1">推し別の貢献度（累計 {formatYen(grandTotal)}）</p>
+            <SectionTitle>推し別の貢献度</SectionTitle>
+            <p className="text-xs text-ink-soft mb-1">累計 <span className="font-bold text-wine">{formatYen(grandTotal)}</span></p>
             {stats.byOshi.length === 0 ? <Empty icon="📊" message="記録がたまるとグラフが表示されます" /> : (
               <>
                 <ResponsiveContainer width="100%" height={220}>
@@ -142,18 +150,37 @@ export default function Records() {
           </Card>
 
           <Card>
-            <p className="text-sm font-bold mb-2">月別の支出推移（直近6か月）</p>
-            {stats.monthly.length === 0 ? <Empty icon="📈" message="記録がたまるとグラフが表示されます" /> : (
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={stats.monthly} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#d8cbb0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#8a7a6b' }} tickFormatter={(v) => `${Number(v.slice(5))}月`} />
-                  <YAxis tick={{ fontSize: 10, fill: '#8a7a6b' }} tickFormatter={(v) => v >= 10000 ? `${v / 10000}万` : v} />
-                  <Tooltip formatter={(v) => formatYen(v)} />
-                  <Bar dataKey="total" name="支出" fill="#8b3a4a" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
+            <SectionTitle>月別の支出推移</SectionTitle>
+            {/* 第16弾：直近6ヶ月／全期間の切り替え */}
+            <div className="grid grid-cols-2 bg-paper rounded-xl p-1 text-xs font-bold mb-2">
+              <button className={`press rounded-lg py-1.5 transition-colors ${range === '6m' ? 'bg-wine text-white' : 'text-ink-soft'}`}
+                onClick={() => setRange('6m')}>直近6ヶ月</button>
+              <button className={`press rounded-lg py-1.5 transition-colors ${range === 'all' ? 'bg-wine text-white' : 'text-ink-soft'}`}
+                onClick={() => setRange('all')}>全期間</button>
+            </div>
+            {(() => {
+              const monthlyData = range === '6m' ? stats.monthly : (stats.monthlyAll || stats.monthly)
+              return monthlyData.length === 0 ? <Empty icon="📈" message="記録がたまるとグラフが表示されます" /> : (
+                <>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={monthlyData} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#d8cbb0" />
+                      {/* 全期間は年をまたぐことがあるので「26/7」形式で表示する */}
+                      <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#8a7a6b' }}
+                        tickFormatter={(v) => range === '6m' ? `${Number(v.slice(5))}月` : `${v.slice(2, 4)}/${Number(v.slice(5))}`} />
+                      <YAxis tick={{ fontSize: 10, fill: '#8a7a6b' }} tickFormatter={(v) => v >= 10000 ? `${v / 10000}万` : v} />
+                      <Tooltip formatter={(v) => formatYen(v)} />
+                      <Bar dataKey="total" name="支出" fill="#96324e" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  {range === 'all' && (
+                    <p className="text-[11px] text-ink-soft text-right mt-1">
+                      全期間の合計 <span className="font-bold text-wine">{formatYen(monthlyData.reduce((s, r) => s + r.total, 0))}</span>
+                    </p>
+                  )}
+                </>
+              )
+            })()}
           </Card>
         </>
       )}

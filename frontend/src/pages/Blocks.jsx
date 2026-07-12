@@ -27,7 +27,8 @@ export default function Blocks() {
     <div className="space-y-3">
       <h2 className="font-bold text-lg text-wine">🚫 ブロックリスト</h2>
       <p className="text-[11px] text-ink-soft">
-        ブロック中の相手とは、お互いのつぶやき・DM・おすすめに表示されません。解除はいつでもできます。
+        ブロック中は、相手からのメッセージがあなたに届かなくなり、つぶやき・おすすめにも表示されません。
+        推し友関係はそのまま残ります。解除はいつでもできます（ブロック中に送られたメッセージは解除後も表示されません）。
       </p>
       {rows.length === 0 ? (
         <Card><Empty icon="🕊️" message="ブロック中のユーザーはいません。" /></Card>

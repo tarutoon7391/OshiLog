@@ -285,6 +285,25 @@ body {
 /* ふわふわ上下する（空っぽ表示のアイコンなど。果実の揺れと同じ動き） */
 .bob-soft { animation: fruit-bob 2.6s ease-in-out infinite alternate; }
 
+/* ===== 第16弾：ホームの木「実が落ちる」演出 ===== */
+
+/* 木をタップしたときの揺れ（根元を支点に小さく左右へ） */
+@keyframes tree-shake {
+  0%   { transform: rotate(0); }
+  20%  { transform: rotate(1.6deg); }
+  40%  { transform: rotate(-1.4deg); }
+  60%  { transform: rotate(1deg); }
+  80%  { transform: rotate(-0.6deg); }
+  100% { transform: rotate(0); }
+}
+.tree-shake { animation: tree-shake 0.55s ease-in-out; transform-origin: 50% 92%; }
+
+/* 果実の落下・復帰。位置（left/top）のトランジションで表現する。
+   対象は最大8個の小さな要素だけなので負荷は小さい */
+.fruit-move {
+  transition: left 0.8s cubic-bezier(0.45, 0.05, 0.55, 0.95), top 0.8s cubic-bezier(0.45, 0.05, 0.55, 0.95);
+}
+
 /* タップした瞬間、パープルのグロウがふわっと出る（主ボタン・FAB用のワンポイント） */
 .tap-pop { transition: box-shadow 0.15s ease; }
 /* pressと併用したときに transition が上書きし合わないよう、まとめて指定し直す */
@@ -302,4 +321,7 @@ body {
   /* 第10弾改良版で追加した分も無効化する */
   .bell-swing, .badge-pop, .nav-bounce, .tape-in, .backdrop-in,
   .bar-grow, .foil-shine, .pop-in, .heart-float, .heart-beat, .bob-soft { animation: none; }
+  /* 第16弾：木の揺れ・実の落下も無効化する（位置は即座に切り替わる） */
+  .tree-shake { animation: none; }
+  .fruit-move { transition: none; }
 }

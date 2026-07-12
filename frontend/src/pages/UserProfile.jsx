@@ -36,7 +36,7 @@ export default function UserProfile({ user }) {
     } catch (err) { alert(err.message) } finally { setBusy(false) }
   }
   const block = async () => {
-    if (!confirm(`${data.display_name}さんをブロックしますか？\n推し友関係は解除され、以降はお互いのつぶやき・DM・おすすめから外れます。`)) return
+    if (!confirm(`${data.display_name}さんをブロックしますか？\n推し友関係はそのままですが、相手からのメッセージがあなたに届かなくなります。つぶやき・おすすめにも表示されません。（相手には通知されません）`)) return
     setBusy(true)
     try { await api(`/users/${id}/block`, { method: 'POST' }); reload() }
     catch (err) { alert(err.message) } finally { setBusy(false) }
@@ -68,9 +68,8 @@ export default function UserProfile({ user }) {
           {!data.is_public && <span className="text-[10px] bg-paper text-ink-soft rounded-full px-2 py-0.5 mt-1">🔒 非公開アカウント</span>}
         </div>
 
-        {data.blocked_me ? (
-          <p className="text-center text-[11px] text-ink-soft mt-3">このユーザーの情報は表示できません。</p>
-        ) : data.can_see_detail ? (
+        {/* 第16弾：ブロックされている側にも通常どおり表示する（ブロックが気付かれないように） */}
+        {data.can_see_detail ? (
           data.bio && <p className="text-sm text-ink whitespace-pre-wrap break-words mt-3 text-center">{data.bio}</p>
         ) : (
           <p className="text-center text-[11px] text-ink-soft mt-3">非公開アカウントのため、推し友になると自己紹介や推しが見られます。</p>
@@ -87,7 +86,7 @@ export default function UserProfile({ user }) {
           {data.pending_outgoing && (
             <p className="text-center text-[11px] text-wine">推し友申請を送信済みです</p>
           )}
-          {!data.is_friend && !data.pending_incoming && !data.pending_outgoing && !data.i_blocked && !data.blocked_me && (
+          {!data.is_friend && !data.pending_incoming && !data.pending_outgoing && !data.i_blocked && (
             <PrimaryButton className="w-full" disabled={busy} onClick={request}>＋ 推し友申請</PrimaryButton>
           )}
 
@@ -100,7 +99,7 @@ export default function UserProfile({ user }) {
       </Card>
 
       {/* 登録している推し（詳細を見られる場合のみ） */}
-      {data.can_see_detail && !data.blocked_me && (
+      {data.can_see_detail && (
         <Card>
           <SectionTitle>登録している推し</SectionTitle>
           {data.oshi.length === 0 ? (
