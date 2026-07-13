@@ -99,10 +99,10 @@ function TimeSelect({ value, onChange, placeholder = '（指定しない）' }) 
 }
 
 // 1日詳細に表示する予定1件のカード（終日・時間帯の両方で共通）
-function DayEventCard({ s, onEdit, onRemove }) {
+function DayEventCard({ s, onEdit, onRemove, className = '' }) {
   return (
     // 第17弾：カード上のタップは時間帯タップ（予定追加）として扱わない
-    <div className="bg-paper rounded-xl p-3 border-l-4" style={{ borderLeftColor: scheduleColor(s) }}
+    <div className={`bg-paper rounded-xl p-3 border-l-4 ${className}`} style={{ borderLeftColor: scheduleColor(s) }}
       onClick={(e) => e.stopPropagation()}>
       <p className="text-[11px] font-bold text-wine">
         {formatHm(s.start_time)
@@ -140,11 +140,37 @@ function DayEventCard({ s, onEdit, onRemove }) {
 // 第16弾：1日詳細の24時間タイムライン。0時〜24時の時間軸をすべて罫線で表示し、
 // 開いたときは最初の予定の時間帯（予定がなければ8時）まで自動スクロールする
 // 第17弾：時間帯をタップすると、その時刻（15分単位）を開始時刻にして予定追加が開く
+// 改善：時刻付きの予定は開始〜終了時刻までブロックが縦に伸びる（15分=1行のグリッド配置）
 function DayTimeline({ events, onAddAt, onEdit, onRemove }) {
   const allDay = events.filter((s) => !formatHm(s.start_time))
   const timed = events.filter((s) => formatHm(s.start_time))
-  const hourOf = (s) => Number(String(s.start_time).slice(0, 2))
-  const firstHour = timed.length ? Math.min(...timed.map(hourOf)) : 8
+  // 時刻→15分枠の番号（0:00=0 〜 23:45=95）
+  const quarterOf = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 4 + Math.floor((m || 0) / 15) }
+  // 各予定の開始枠a・終了枠bを計算。終了未指定は1時間ぶん、終了が開始以前でも最低1枠は確保
+  const items = timed
+    .map((s) => {
+      const a = Math.min(95, quarterOf(s.start_time))
+      const bRaw = formatHm(s.end_time) ? quarterOf(s.end_time) : a + 4
+      return { s, a, b: Math.max(a + 1, Math.min(96, bRaw)) }
+    })
+    .sort((x, y) => x.a - y.a || y.b - x.b)
+  // 時間帯が重なる予定は横に並べる（開いているレーンへ順に割り当て）
+  const laneEnds = []
+  items.forEach((it) => {
+    let li = laneEnds.findIndex((end) => end <= it.a)
+    if (li === -1) { li = laneEnds.length; laneEnds.push(0) }
+    laneEnds[li] = it.b
+    it.lane = li
+  })
+  // 列数は「重なりのかたまり」ごとに決める（重ならない予定まで細くしない）
+  let cluster = [], clusterEnd = -1
+  const flushCluster = () => { const n = Math.max(...cluster.map((i) => i.lane)) + 1; cluster.forEach((i) => { i.laneCount = n }); cluster = [] }
+  items.forEach((it) => {
+    if (cluster.length && it.a >= clusterEnd) flushCluster()
+    cluster.push(it); clusterEnd = Math.max(clusterEnd, it.b)
+  })
+  if (cluster.length) flushCluster()
+  const firstHour = items.length ? Math.floor(items[0].a / 4) : 8
   const scrollRef = useRef(null)
   useEffect(() => {
     // ズーム演出と重ならないよう少し待ってからスクロール
@@ -167,19 +193,23 @@ function DayTimeline({ events, onAddAt, onEdit, onRemove }) {
           {allDay.map((s) => <DayEventCard key={s.id} s={s} onEdit={onEdit} onRemove={onRemove} />)}
         </div>
       )}
-      {/* 手帳の時間罫のような24時間の目盛り */}
+      {/* 手帳の時間罫のような24時間の目盛り。15分=1行のグリッドに時間罫と予定ブロックを重ねる */}
       <div className="bg-paper-card rounded-2xl border border-paper-line/60 px-2 pb-1 pt-0.5">
-        {Array.from({ length: 24 }, (_, h) => (
-          <div key={h} ref={h === firstHour ? scrollRef : undefined} onClick={(e) => tapSlot(h, e)}
-            className="flex border-t border-paper-line/50 first:border-t-0 min-h-8 cursor-pointer active:bg-wine/5">
-            <span className="w-11 shrink-0 text-right pr-2 text-[10px] text-ink-soft pt-1">{h}:00</span>
-            <div className="flex-1 min-w-0 py-1 space-y-1">
-              {timed.filter((s) => hourOf(s) === h).map((s) => (
-                <DayEventCard key={s.id} s={s} onEdit={onEdit} onRemove={onRemove} />
-              ))}
+        <div className="grid" style={{ gridTemplateColumns: '2.75rem minmax(0, 1fr)', gridTemplateRows: 'repeat(96, minmax(0.5rem, auto))' }}>
+          {Array.from({ length: 24 }, (_, h) => (
+            <div key={h} ref={h === firstHour ? scrollRef : undefined} onClick={(e) => tapSlot(h, e)}
+              style={{ gridRow: `${h * 4 + 1} / span 4`, gridColumn: '1 / -1' }}
+              className="flex border-t border-paper-line/50 first:border-t-0 cursor-pointer active:bg-wine/5">
+              <span className="w-11 shrink-0 text-right pr-2 text-[10px] text-ink-soft pt-1">{h}:00</span>
             </div>
-          </div>
-        ))}
+          ))}
+          {items.map(({ s, a, b, lane, laneCount }) => (
+            <div key={s.id} className="min-w-0 py-0.5 pr-0.5"
+              style={{ gridRow: `${a + 1} / ${b + 1}`, gridColumn: '2', width: `${100 / laneCount}%`, marginLeft: `${(100 / laneCount) * lane}%` }}>
+              <DayEventCard s={s} onEdit={onEdit} onRemove={onRemove} className="h-full" />
+            </div>
+          ))}
+        </div>
         <div className="flex border-t border-paper-line/50">
           <span className="w-11 shrink-0 text-right pr-2 text-[10px] text-ink-soft py-0.5">24:00</span>
         </div>
