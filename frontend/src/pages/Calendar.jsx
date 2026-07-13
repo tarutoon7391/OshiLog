@@ -101,7 +101,9 @@ function TimeSelect({ value, onChange, placeholder = '（指定しない）' }) 
 // 1日詳細に表示する予定1件のカード（終日・時間帯の両方で共通）
 function DayEventCard({ s, onEdit, onRemove }) {
   return (
-    <div className="bg-paper rounded-xl p-3 border-l-4" style={{ borderLeftColor: scheduleColor(s) }}>
+    // 第17弾：カード上のタップは時間帯タップ（予定追加）として扱わない
+    <div className="bg-paper rounded-xl p-3 border-l-4" style={{ borderLeftColor: scheduleColor(s) }}
+      onClick={(e) => e.stopPropagation()}>
       <p className="text-[11px] font-bold text-wine">
         {formatHm(s.start_time)
           ? `${formatHm(s.start_time)}${formatHm(s.end_time) ? `〜${formatHm(s.end_time)}` : ''}`
@@ -137,7 +139,8 @@ function DayEventCard({ s, onEdit, onRemove }) {
 
 // 第16弾：1日詳細の24時間タイムライン。0時〜24時の時間軸をすべて罫線で表示し、
 // 開いたときは最初の予定の時間帯（予定がなければ8時）まで自動スクロールする
-function DayTimeline({ events, onEdit, onRemove }) {
+// 第17弾：時間帯をタップすると、その時刻（15分単位）を開始時刻にして予定追加が開く
+function DayTimeline({ events, onAddAt, onEdit, onRemove }) {
   const allDay = events.filter((s) => !formatHm(s.start_time))
   const timed = events.filter((s) => formatHm(s.start_time))
   const hourOf = (s) => Number(String(s.start_time).slice(0, 2))
@@ -148,9 +151,16 @@ function DayTimeline({ events, onEdit, onRemove }) {
     const t = setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollIntoView({ block: 'center' }) }, 80)
     return () => clearTimeout(t)
   }, [])
+  // タップ位置から15分単位の時刻を割り出す（行の上端寄り=0分、下端寄り=45分）
+  const tapSlot = (h, e) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const q = Math.min(3, Math.max(0, Math.floor(((e.clientY - r.top) / r.height) * 4)))
+    onAddAt(`${pad(h)}:${pad(q * 15)}`)
+  }
   return (
     <div className="space-y-3">
       {events.length === 0 && <p className="text-[11px] text-ink-soft text-center">この日の予定はありません</p>}
+      <p className="text-[10px] text-ink-soft text-right">時間帯をタップすると、その時刻から予定を追加できます</p>
       {allDay.length > 0 && (
         <div className="space-y-2">
           <p className="text-[11px] font-bold text-ink-soft">📌 終日</p>
@@ -160,8 +170,8 @@ function DayTimeline({ events, onEdit, onRemove }) {
       {/* 手帳の時間罫のような24時間の目盛り */}
       <div className="bg-paper-card rounded-2xl border border-paper-line/60 px-2 pb-1 pt-0.5">
         {Array.from({ length: 24 }, (_, h) => (
-          <div key={h} ref={h === firstHour ? scrollRef : undefined}
-            className="flex border-t border-paper-line/50 first:border-t-0 min-h-8">
+          <div key={h} ref={h === firstHour ? scrollRef : undefined} onClick={(e) => tapSlot(h, e)}
+            className="flex border-t border-paper-line/50 first:border-t-0 min-h-8 cursor-pointer active:bg-wine/5">
             <span className="w-11 shrink-0 text-right pr-2 text-[10px] text-ink-soft pt-1">{h}:00</span>
             <div className="flex-1 min-w-0 py-1 space-y-1">
               {timed.filter((s) => hourOf(s) === h).map((s) => (
@@ -317,7 +327,8 @@ export default function Calendar() {
     await api(`/schedules/${s.id}`, { method: 'DELETE' }); reload()
   }
 
-  const openAdd = (dateStr) => setForm({ ...emptyForm, event_date: dateStr || selected || today })
+  // 予定追加を開く（第17弾：時間帯タップ時は開始時刻を初期値として渡す。あくまで初期値で変更可能）
+  const openAdd = (dateStr, startTime) => setForm({ ...emptyForm, event_date: dateStr || selected || today, start_time: startTime || '' })
   const openEdit = (s) => setForm({
     id: s.id, title: s.title, event_type: s.event_type, event_date: s.event_date,
     oshi_id: s.oshi_id, memo: s.memo || '',
@@ -476,7 +487,9 @@ export default function Calendar() {
         <DayZoomPanel title={formatDateJa(detailDate)} backLabel={`${Number(detailDate.slice(5, 7))}月`}
           origin={dayOrigin} onClose={() => setDetailDate(null)}>
           {/* 第16弾：0時〜24時の時間軸をすべて表示する24時間タイムライン */}
+          {/* 第17弾：時間帯タップ→その時刻を開始時刻にして予定追加を開く */}
           <DayTimeline events={detailEvents}
+            onAddAt={(t) => { const d = detailDate; setDetailDate(null); openAdd(d, t) }}
             onEdit={(s) => { setDetailDate(null); openEdit(s) }} onRemove={remove} />
           <PrimaryButton className="w-full mt-4" onClick={() => { const d = detailDate; setDetailDate(null); openAdd(d) }}>
             この日に予定を追加
