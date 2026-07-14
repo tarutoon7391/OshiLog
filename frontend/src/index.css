@@ -304,13 +304,15 @@ body {
   transition: left 0.8s cubic-bezier(0.45, 0.05, 0.55, 0.95), top 0.8s cubic-bezier(0.45, 0.05, 0.55, 0.95);
 }
 
-/* 第18弾：枝から垂れる糸。transform(scaleY)だけで伸び縮みさせるので軽量 */
+/* 第18弾：枝から垂れる糸。transform(scaleY)だけで伸び縮みさせるので軽量。
+   淡い縁取り（box-shadow）を添えて、昼の明るい葉・夜の暗い空のどちらでも見えるようにする */
 .fruit-string {
   position: absolute;
   width: 2px;
   margin-left: -1px;
   transform-origin: top center;
-  background: linear-gradient(to bottom, rgba(107, 84, 63, 0.7), rgba(107, 84, 63, 0.4));
+  background: linear-gradient(to bottom, rgba(94, 71, 50, 0.9), rgba(94, 71, 50, 0.6));
+  box-shadow: 0 0 0 1px rgba(255, 253, 248, 0.35);
   border-radius: 1px;
   transition: transform 0.8s cubic-bezier(0.45, 0.05, 0.55, 0.95);
   pointer-events: none;
