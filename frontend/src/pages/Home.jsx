@@ -250,7 +250,7 @@ export default function Home({ user }) {
                 { key: 'list', icon: '🗓️', label: '今日・直近', value: `${listCount}件`, x: 21, y: 30, size: 62, color: '#5c7a94', delay: 0.4, hang: 22 },
                 ...(savingsEvents.length ? [{ key: 'savings', icon: '🐷', label: '貯金', value: savingsEvents.length === 1 ? `${Math.min(100, Math.round((savingsEvents[0].saved_amount / savingsEvents[0].savings_goal) * 100))}%` : `${savingsEvents.length}件`, x: 79, y: 28, size: 64, color: '#b9962e', delay: 0.8, hang: 13 }] : []),
                 { key: 'goods', icon: '🎁', label: 'グッズ', x: 50, y: 43, size: 56, color: '#a86a52', delay: 1.2, hang: 19 },
-                { key: 'month', icon: '💰', label: '今月の推し活費', value: formatYen(monthTotal), x: 11.5, y: 49, size: 60, color: '#5e7a5b', delay: 0.6, hang: 18 },
+                { key: 'month', icon: '💰', label: '今月の推し活費', value: formatYen(monthTotal), x: 11.5, y: 49, size: 60, color: '#5e7a5b', delay: 0.6, hang: 24 },
                 { key: 'oshiCount', icon: '⭐', label: '推している人', value: `${oshiList.length}人`, x: 88, y: 47, size: 58, color: '#7d5f8b', delay: 1.0, hang: 17 },
                 { key: 'myOshi', icon: '💗', label: 'わたしの推し', x: 33, y: 56, size: 58, color: '#b26578', delay: 0.2, hang: 12 },
                 { key: 'records', icon: '📒', label: '家計簿', x: 66, y: 57, size: 56, color: '#8a6a4f', delay: 1.4, hang: 14 },
