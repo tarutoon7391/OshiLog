@@ -1,9 +1,76 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { ResponsiveContainer, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import { api } from '../api'
 import { getSocket } from '../socket'
-import { readFileAsDataUrl } from '../util'
+import { readFileAsDataUrl, formatYen, chartColor } from '../util'
 import { Card, PrimaryButton, GhostButton, SectionTitle, Empty, Loading } from '../components/ui'
+
+// 第18弾：この推しに使った金額の内訳（自分の推しに登録している場合のみ表示）。
+// 参戦記録をこの推しで絞り込み、累計・月別推移・記録一覧にまとめる
+function SpendSection({ masterId }) {
+  const [spend, setSpend] = useState(null) // { total, monthly, list }
+  useEffect(() => {
+    // 自分の推しリストからこのマスターに対応する推しを探し、その推しの記録だけを集計する
+    Promise.all([api('/oshi'), api('/records')])
+      .then(([oshiList, records]) => {
+        const mine = oshiList.find((o) => o.oshi_master_id === Number(masterId))
+        if (!mine) { setSpend(null); return }
+        const list = records.filter((r) => r.oshi_id === mine.id)
+        const byMonth = {}
+        list.forEach((r) => {
+          const mth = String(r.record_date).slice(0, 7)
+          byMonth[mth] = (byMonth[mth] || 0) + r.amount
+        })
+        const monthly = Object.entries(byMonth).sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([month, total]) => ({ month, total }))
+        setSpend({ total: list.reduce((s, r) => s + r.amount, 0), monthly, list })
+      })
+      .catch(console.error)
+  }, [masterId])
+
+  if (!spend) return null
+  return (
+    <Card>
+      <SectionTitle>この推しに使った金額</SectionTitle>
+      {spend.list.length === 0 ? (
+        <Empty icon="💰" message={'まだ参戦記録がありません。\n家計簿から記録するとここに表示されます'} />
+      ) : (
+        <>
+          <p className="text-xs text-ink-soft">累計（参戦記録の合計）</p>
+          <p className="text-2xl font-black text-wine">{formatYen(spend.total)}</p>
+          {/* 月別推移（年をまたぐことがあるので「26/7」形式） */}
+          <p className="text-[11px] font-bold text-ink-soft mt-3 mb-1">📈 月別の推移</p>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={spend.monthly} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#d8cbb0" />
+              <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#8a7a6b' }}
+                tickFormatter={(v) => `${v.slice(2, 4)}/${Number(v.slice(5))}`} />
+              <YAxis tick={{ fontSize: 10, fill: '#8a7a6b' }} tickFormatter={(v) => v >= 10000 ? `${v / 10000}万` : v} />
+              <Tooltip formatter={(v) => formatYen(v)} />
+              <Bar dataKey="total" name="支出" radius={[6, 6, 0, 0]}>
+                {spend.monthly.map((entry, i) => <Cell key={entry.month} fill={chartColor(i)} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          {/* 参戦記録の一覧（新しい順） */}
+          <p className="text-[11px] font-bold text-ink-soft mt-3 mb-1">📒 参戦記録（{spend.list.length}件）</p>
+          <div className="space-y-1.5 max-h-56 overflow-y-auto scroll-area">
+            {spend.list.map((r) => (
+              <div key={r.id} className="bg-paper rounded-xl px-3 py-2 flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold truncate">{r.title}</p>
+                  <p className="text-[10px] text-ink-soft">{r.record_date}{r.event_name ? `・🎪 ${r.event_name}` : ''}</p>
+                </div>
+                <p className="text-sm font-bold shrink-0">{formatYen(r.amount)}</p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Card>
+  )
+}
 
 // 推し詳細ページ：表示画像（着せ替え）・ジャンル・登録人数・公式/グッズURL・承認ギャラリー
 export default function OshiDetail() {
@@ -95,6 +162,9 @@ export default function OshiDetail() {
             : <PrimaryButton className="w-full" disabled={busy} onClick={register}>推しに登録する</PrimaryButton>}
         </div>
       </Card>
+
+      {/* 第18弾：この推しに使った金額の内訳（登録済みのときだけ） */}
+      {data.mine && <SpendSection masterId={masterId} />}
 
       {/* 着せ替え：表示画像の選択（あなたの画面だけに反映） */}
       <Card>

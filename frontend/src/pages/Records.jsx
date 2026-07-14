@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 import { api } from '../api'
-import { currentMonth, shiftMonth, todayStr, formatYen } from '../util'
+import { currentMonth, shiftMonth, todayStr, formatYen, chartColor } from '../util'
 import { Card, Modal, Field, inputClass, OshiSelect, PrimaryButton, Empty, Loading, SectionTitle, CountUp } from '../components/ui'
 
 const emptyForm = { title: '', record_date: '', amount: '', oshi_id: null, memo: '', event_id: null }
@@ -130,7 +130,8 @@ export default function Records() {
                 <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
                     <Pie data={stats.byOshi} dataKey="total" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={2}>
-                      {stats.byOshi.map((b, i) => <Cell key={i} fill={b.color} />)}
+                      {/* 第18弾：推しごとに多色パレットで塗り分ける（凡例の色印と同じ並び） */}
+                      {stats.byOshi.map((b, i) => <Cell key={i} fill={chartColor(i)} />)}
                     </Pie>
                     <Tooltip formatter={(v) => formatYen(v)} />
                   </PieChart>
@@ -138,7 +139,7 @@ export default function Records() {
                 <ul className="space-y-1 mt-1">
                   {stats.byOshi.map((b, i) => (
                     <li key={i} className="flex items-center gap-2 text-sm">
-                      <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: b.color }} />
+                      <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: chartColor(i) }} />
                       <span className="flex-1 truncate">{b.name}</span>
                       <span className="font-bold">{formatYen(b.total)}</span>
                       <span className="text-[11px] text-ink-soft w-10 text-right">{grandTotal ? Math.round((b.total / grandTotal) * 100) : 0}%</span>
@@ -170,7 +171,10 @@ export default function Records() {
                         tickFormatter={(v) => range === '6m' ? `${Number(v.slice(5))}月` : `${v.slice(2, 4)}/${Number(v.slice(5))}`} />
                       <YAxis tick={{ fontSize: 10, fill: '#8a7a6b' }} tickFormatter={(v) => v >= 10000 ? `${v / 10000}万` : v} />
                       <Tooltip formatter={(v) => formatYen(v)} />
-                      <Bar dataKey="total" name="支出" fill="#96324e" radius={[6, 6, 0, 0]} />
+                      {/* 第18弾：月ごとに多色パレットで色を変える */}
+                      <Bar dataKey="total" name="支出" radius={[6, 6, 0, 0]}>
+                        {monthlyData.map((entry, i) => <Cell key={entry.month} fill={chartColor(i)} />)}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                   {range === 'all' && (

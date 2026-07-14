@@ -285,7 +285,7 @@ body {
 /* ふわふわ上下する（空っぽ表示のアイコンなど。果実の揺れと同じ動き） */
 .bob-soft { animation: fruit-bob 2.6s ease-in-out infinite alternate; }
 
-/* ===== 第16弾：ホームの木「実が落ちる」演出 ===== */
+/* ===== 第16弾→第18弾：ホームの木「糸で吊るす」演出 ===== */
 
 /* 木をタップしたときの揺れ（根元を支点に小さく左右へ） */
 @keyframes tree-shake {
@@ -298,11 +298,33 @@ body {
 }
 .tree-shake { animation: tree-shake 0.55s ease-in-out; transform-origin: 50% 92%; }
 
-/* 果実の落下・復帰。位置（left/top）のトランジションで表現する。
+/* 果実の垂れ下がり・復帰。位置（left/top）のトランジションで表現する。
    対象は最大8個の小さな要素だけなので負荷は小さい */
 .fruit-move {
   transition: left 0.8s cubic-bezier(0.45, 0.05, 0.55, 0.95), top 0.8s cubic-bezier(0.45, 0.05, 0.55, 0.95);
 }
+
+/* 第18弾：枝から垂れる糸。transform(scaleY)だけで伸び縮みさせるので軽量 */
+.fruit-string {
+  position: absolute;
+  width: 2px;
+  margin-left: -1px;
+  transform-origin: top center;
+  background: linear-gradient(to bottom, rgba(107, 84, 63, 0.7), rgba(107, 84, 63, 0.4));
+  border-radius: 1px;
+  transition: transform 0.8s cubic-bezier(0.45, 0.05, 0.55, 0.95);
+  pointer-events: none;
+}
+
+/* 第18弾：吊るされた実が糸の上端あたりを支点にゆっくり左右へ揺れる（振り子） */
+@keyframes fruit-sway {
+  from { transform: rotate(-2.2deg); }
+  to   { transform: rotate(2.2deg); }
+}
+.fruit-sway { animation: fruit-sway 2.8s ease-in-out infinite alternate; transform-origin: 50% -44px; }
+
+/* 第18弾：実の形。木の上では丸い果実、吊るされるとカラフルな角丸アイコンに変わる */
+.fruit-face { transition: border-radius 0.5s ease; }
 
 /* タップした瞬間、パープルのグロウがふわっと出る（主ボタン・FAB用のワンポイント） */
 .tap-pop { transition: box-shadow 0.15s ease; }
@@ -321,7 +343,8 @@ body {
   /* 第10弾改良版で追加した分も無効化する */
   .bell-swing, .badge-pop, .nav-bounce, .tape-in, .backdrop-in,
   .bar-grow, .foil-shine, .pop-in, .heart-float, .heart-beat, .bob-soft { animation: none; }
-  /* 第16弾：木の揺れ・実の落下も無効化する（位置は即座に切り替わる） */
+  /* 第16弾〜第18弾：木の揺れ・実の垂れ下がり・糸・振り子も無効化する（位置は即座に切り替わる） */
   .tree-shake { animation: none; }
-  .fruit-move { transition: none; }
+  .fruit-move, .fruit-string, .fruit-face { transition: none; }
+  .fruit-sway { animation: none; }
 }

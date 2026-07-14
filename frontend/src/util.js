@@ -5,6 +5,22 @@ export const OSHI_GENRES = ['アイドル', '声優', 'VTuber', 'アーティス
 // 推しカラー（手帳になじむ落ち着いた色。蛍光色は使わない）
 export const OSHI_COLORS = ['#8b3a4a', '#a86b4c', '#c99a3f', '#5e7a5b', '#4a6d7c', '#6b5b7b', '#a75265', '#77694f']
 
+// 第18弾：集計グラフ用の多色パレット。テーマ5色＋手帳になじむ中間色で構成し、
+// 複数色を使いつつも紙の手帳の落ち着いたトーンに収める（蛍光色・ネオンは使わない）
+export const CHART_COLORS = [
+  '#96324e', // ワイン
+  '#5c7a94', // スモークブルー
+  '#b9962e', // マットゴールド
+  '#5e7a5b', // セージグリーン
+  '#7d5f8b', // モーヴ
+  '#a86a52', // テラコッタ
+  '#4a6d7c', // くすんだ青緑
+  '#b26578', // ローズ
+  '#77694f', // オリーブ
+  '#8a6a4f', // 焦げ茶
+]
+export const chartColor = (i) => CHART_COLORS[i % CHART_COLORS.length]
+
 export const EVENT_TYPES = ['ライブ', '配信', 'イベント', 'グッズ発売', '誕生日', 'その他']
 
 export const EVENT_ICONS = {
